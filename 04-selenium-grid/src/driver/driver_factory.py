@@ -117,6 +117,8 @@ class DriverFactory:
         browser: str = None,
         headless: bool = None,
         driver_mode: str = None,
+        use_grid: bool = None,
+        grid_url: str = None,
     ) -> webdriver.Remote:
         """
         Create and return a configured WebDriver instance.
@@ -125,6 +127,9 @@ class DriverFactory:
             browser:     "chrome" | "firefox" (defaults to config.ini value)
             headless:    True/False (defaults to config.ini value)
             driver_mode: "selenium_manager" | "webdriver_manager"
+            use_grid:    True → remote WebDriver via Selenium Grid hub
+                         False → local browser (default)
+            grid_url:    Grid hub URL, e.g. "http://localhost:4444/wd/hub"
 
         Returns:
             A ready-to-use WebDriver instance with timeouts configured.
@@ -133,13 +138,18 @@ class DriverFactory:
         browser     = (browser     or settings.browser    ).lower()
         headless    = headless     if headless is not None else settings.headless
         driver_mode = driver_mode  or settings.driver_mode
+        use_grid    = use_grid     if use_grid  is not None else settings.use_grid
+        grid_url    = grid_url     or settings.grid_url
 
         log.info(
-            "Creating WebDriver | browser=%s | headless=%s | mode=%s",
-            browser, headless, driver_mode,
+            "Creating WebDriver | browser=%s | headless=%s | mode=%s | grid=%s",
+            browser, headless, driver_mode, use_grid,
         )
 
-        if browser == "chrome":
+        if use_grid:
+            # ── Remote execution via Selenium Grid ────────────────────────────
+            driver = DriverFactory._create_remote(browser, headless, grid_url)
+        elif browser == "chrome":
             driver = DriverFactory._create_chrome(headless, driver_mode)
         elif browser == "firefox":
             driver = DriverFactory._create_firefox(headless, driver_mode)
@@ -214,3 +224,29 @@ class DriverFactory:
 
         log.info("Firefox via Selenium Manager (built-in)")
         return webdriver.Firefox(options=options)
+
+    # ── Remote (Selenium Grid) ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _create_remote(browser: str, headless: bool, grid_url: str):
+        """
+        Create a remote WebDriver that executes on a Selenium Grid node.
+
+        CONCEPT: webdriver.Remote() sends WebDriver commands over HTTP to
+        the Grid hub, which forwards them to a registered browser node.
+        The test code is identical — only the driver creation differs.
+
+        Args:
+            browser:  "chrome" or "firefox"
+            headless: passed to the options builder (Grid nodes support headless)
+            grid_url: full hub URL, e.g. "http://selenium-hub:4444/wd/hub"
+        """
+        if browser == "chrome":
+            options = _build_chrome_options(headless)
+        elif browser == "firefox":
+            options = _build_firefox_options(headless)
+        else:
+            raise ValueError(f"Unsupported browser for Grid: '{browser}'.")
+
+        log.info("Remote WebDriver | grid=%s | browser=%s | headless=%s", grid_url, browser, headless)
+        return webdriver.Remote(command_executor=grid_url, options=options)

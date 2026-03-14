@@ -77,6 +77,18 @@ def pytest_addoption(parser):
         choices=["dev", "staging", "ci"],
         help="Environment to run against (overrides ENV env var)",
     )
+    parser.addoption(
+        "--grid",
+        action="store_true",
+        default=False,
+        help="Run tests on Selenium Grid (remote). Overrides config.ini use_grid.",
+    )
+    parser.addoption(
+        "--grid-url",
+        action="store",
+        default=None,
+        help="Selenium Grid hub URL (e.g. http://localhost:4444/wd/hub). Overrides config.ini grid_url.",
+    )
 
 
 # =============================================================================
@@ -102,14 +114,21 @@ def driver(request):
     # ── Determine browser settings ────────────────────────────────────────────
     headless = request.config.getoption("--headless") or settings.headless
     browser  = request.config.getoption("--browser") or settings.browser
+    use_grid = request.config.getoption("--grid") or settings.use_grid
+    grid_url = request.config.getoption("--grid-url") or None  # None → settings default
 
     log.info(
-        "🌐 [function] Creating %s driver | headless=%s | test=%s",
-        browser, headless, request.node.name,
+        "🌐 [function] Creating %s driver | headless=%s | grid=%s | test=%s",
+        browser, headless, use_grid, request.node.name,
     )
 
     # ── Create the driver ────────────────────────────────────────────────────
-    _driver = DriverFactory.create_driver(browser=browser, headless=headless)
+    _driver = DriverFactory.create_driver(
+        browser=browser,
+        headless=headless,
+        use_grid=use_grid,
+        grid_url=grid_url,
+    )
 
     yield _driver
 

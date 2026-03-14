@@ -58,6 +58,19 @@ class Settings:
     def driver_mode(self) -> str:
         return self._section.get("driver_mode", "selenium_manager")
 
+    @property
+    def use_grid(self) -> bool:
+        # Allow env-var override: USE_GRID=true pytest
+        env_val = os.getenv("USE_GRID")
+        if env_val is not None:
+            return env_val.lower() in ("true", "1", "yes")
+        return self._section.get("use_grid", "false").lower() in ("true", "1", "yes")
+
+    @property
+    def grid_url(self) -> str:
+        # Allow env-var override: GRID_URL=http://selenium-hub:4444/wd/hub
+        return os.getenv("GRID_URL", self._section.get("grid_url", "http://localhost:4444/wd/hub"))
+
     # ── Waits ─────────────────────────────────────────────────────────────────
     @property
     def implicit_wait(self) -> int:
