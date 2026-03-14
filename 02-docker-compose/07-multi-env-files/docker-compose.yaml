@@ -1,0 +1,6 @@
+services:
+  cube:
+    build: .
+    image: pratyushjindal123/cube-py
+    environment:
+     - NUMBER=${NUM}

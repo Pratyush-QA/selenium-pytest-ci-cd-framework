@@ -1,0 +1,139 @@
+# =============================================================================
+# docker-compose.yml — UI framework multi-service setup
+# =============================================================================
+#
+# SERVICES:
+#   tests         → run all tests headless (CI mode)
+#   smoke         → run only smoke tests
+#   regression    → run only regression tests
+#   parallel      → run tests with pytest-xdist in parallel
+#   selenium-hub  → Selenium Grid hub (for distributed testing)
+#   chrome-node   → Selenium Grid Chrome node
+#   grid-tests    → tests running against the Selenium Grid
+#
+# COMMANDS:
+#   docker-compose up tests
+#   docker-compose up smoke
+#   docker-compose --profile grid up selenium-hub chrome-node grid-tests
+#   docker-compose up allure-server --profile report
+# =============================================================================
+
+version: "3.9"
+
+x-base: &base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    - ENV=${ENV:-ci}
+    - HEADLESS=true
+    - PYTHONPATH=/app
+  volumes:
+    - ./screenshots:/app/screenshots
+    - ./reports:/app/reports
+    - ./allure-results:/app/allure-results
+    - ./logs:/app/logs
+  networks:
+    - ui-test-network
+
+services:
+
+  # ── All tests headless ────────────────────────────────────────────────────
+  tests:
+    <<: *base
+    container_name: ui-tests-all
+    command: >
+      pytest --headless
+      --alluredir=allure-results
+      --html=reports/report.html
+      --self-contained-html
+      -v
+
+  # ── Smoke tests ───────────────────────────────────────────────────────────
+  smoke:
+    <<: *base
+    container_name: ui-tests-smoke
+    command: >
+      pytest -m smoke --headless
+      --alluredir=allure-results
+      --html=reports/smoke-report.html
+      --self-contained-html
+      -v
+
+  # ── Regression tests ──────────────────────────────────────────────────────
+  regression:
+    <<: *base
+    container_name: ui-tests-regression
+    command: >
+      pytest -m regression --headless
+      --alluredir=allure-results
+      --html=reports/regression-report.html
+      --self-contained-html
+      -v
+
+  # ── Parallel tests (pytest-xdist) ─────────────────────────────────────────
+  # CONCEPT: -n auto uses all available CPUs to run tests simultaneously.
+  # NOTE: Each parallel worker gets its own browser instance.
+  # Avoid shared state between tests — each must be fully independent.
+  parallel:
+    <<: *base
+    container_name: ui-tests-parallel
+    command: >
+      pytest -n auto --headless
+      --alluredir=allure-results
+      -v
+
+  # ── Selenium Grid Hub ─────────────────────────────────────────────────────
+  # CONCEPT: Selenium Grid lets you run tests on REMOTE browsers.
+  # The hub routes test commands to registered nodes.
+  # Nodes can run on different machines (or containers).
+  selenium-hub:
+    image: selenium/hub:4.18.1
+    container_name: selenium-hub
+    ports:
+      - "4442:4442"   # hub publish port
+      - "4443:4443"   # hub subscribe port
+      - "4444:4444"   # WebDriver endpoint (tests connect here)
+    networks:
+      - ui-test-network
+    profiles:
+      - grid
+
+  # ── Chrome Node for Grid ──────────────────────────────────────────────────
+  chrome-node:
+    image: selenium/node-chrome:4.18.1
+    container_name: selenium-chrome-node
+    shm_size: 2gb        # Chrome needs shared memory to avoid crashes
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_MAX_SESSIONS=2   # allow 2 concurrent Chrome instances on this node
+    ports:
+      - "7900:7900"     # noVNC — watch tests live at http://localhost:7900
+    networks:
+      - ui-test-network
+    profiles:
+      - grid
+
+  # ── Allure Report Server ──────────────────────────────────────────────────
+  allure-server:
+    image: frankescobar/allure-docker-service:latest
+    container_name: allure-server
+    environment:
+      CHECK_RESULTS_EVERY_SECONDS: 3
+      KEEP_HISTORY: 1
+    ports:
+      - "8080:5050"
+    volumes:
+      - ./allure-results:/app/allure-results
+    networks:
+      - ui-test-network
+    profiles:
+      - report
+
+networks:
+  ui-test-network:
+    driver: bridge

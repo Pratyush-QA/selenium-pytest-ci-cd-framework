@@ -1,0 +1,353 @@
+# =============================================================================
+# .github/workflows/ci.yml — GitHub Actions CI/CD Pipeline
+# =============================================================================
+#
+# CONCEPT: GitHub Actions runs your tests automatically when you:
+#   - Push code to any branch
+#   - Open a Pull Request to main/develop
+#   - Manually trigger the workflow
+#   - Schedule a nightly run
+#
+# KEY CONCEPTS:
+#   workflow  → the entire YAML file (a pipeline)
+#   job       → a unit of work that runs on a specific OS
+#   step      → a single command or action inside a job
+#   action    → reusable building block (e.g. actions/checkout)
+#   runner    → the virtual machine that executes the job
+#   matrix    → run the same job across multiple configs in parallel
+#
+# VIEW RESULTS: GitHub repo → Actions tab → click a workflow run
+# =============================================================================
+
+name: API Test Framework CI
+
+# ── When to run this workflow ────────────────────────────────────────────────
+on:
+  # Trigger on any push to these branches
+  push:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "hotfix/**"
+
+  # Trigger when a PR is opened/updated/reopened against main or develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  # Allow manual trigger from GitHub UI (Actions tab → Run workflow button)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to run tests against"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, staging, prod]
+      marker:
+        description: "Pytest marker to run (e.g. smoke, regression)"
+        required: false
+        default: ""
+        type: string
+
+  # Nightly scheduled run at midnight UTC (cron syntax)
+  # Minute(0) Hour(0) Day(*) Month(*) DayOfWeek(*)
+  schedule:
+    - cron: "0 0 * * *"
+
+# ── Default permissions ───────────────────────────────────────────────────────
+permissions:
+  contents: read
+  checks: write       # needed to publish test results
+  pull-requests: write # needed to comment test results on PRs
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Job 1: Lint & Static Analysis ─────────────────────────────────────────
+  lint:
+    name: "🔍 Lint & Static Analysis"
+    runs-on: ubuntu-latest
+
+    steps:
+      # CONCEPT: actions/checkout downloads your repo code onto the runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # CONCEPT: actions/setup-python installs Python on the runner
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"  # cache pip downloads between runs → faster CI
+
+      - name: Install linting dependencies
+        run: |
+          pip install --upgrade pip
+          pip install flake8 black isort
+
+      - name: Run flake8 (style/error checker)
+        run: |
+          flake8 src/ tests/ config/ \
+            --max-line-length=100 \
+            --exclude=__pycache__,.venv \
+            --count \
+            --statistics
+
+      - name: Check code formatting with black
+        run: black --check --diff src/ tests/ config/
+
+      - name: Check import order with isort
+        run: isort --check-only --diff src/ tests/ config/
+
+
+  # ── Job 2: Smoke Tests ────────────────────────────────────────────────────
+  smoke-tests:
+    name: "💨 Smoke Tests"
+    runs-on: ubuntu-latest
+    # CONCEPT: needs — this job only starts after 'lint' passes
+    needs: lint
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run smoke tests
+        run: |
+          pytest -m smoke \
+            --alluredir=allure-results \
+            --html=reports/smoke.html \
+            --self-contained-html \
+            --tb=short \
+            -v
+        continue-on-error: false  # fail fast on smoke test failures
+
+      # CONCEPT: actions/upload-artifact saves files from the runner
+      # so you can download them from the Actions UI after the run.
+      - name: Upload smoke test report
+        uses: actions/upload-artifact@v4
+        if: always()  # run even if tests failed
+        with:
+          name: smoke-test-report
+          path: |
+            reports/smoke.html
+            allure-results/
+          retention-days: 14  # keep artifacts for 14 days
+
+
+  # ── Job 3: Full Regression (Matrix Strategy) ──────────────────────────────
+  regression-tests:
+    name: "🧪 Regression — Python ${{ matrix.python-version }}"
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+
+    # CONCEPT: Matrix Strategy
+    # ──────────────────────────
+    # Runs this job MULTIPLE TIMES in parallel with different configurations.
+    # Here we test on Python 3.10 AND 3.11 simultaneously.
+    # This catches compatibility issues early.
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+      fail-fast: false  # don't cancel remaining matrix jobs on one failure
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # CONCEPT: Create output directories before running tests
+      - name: Create output directories
+        run: mkdir -p reports logs allure-results
+
+      - name: Run regression tests
+        run: |
+          MARKER="${{ github.event.inputs.marker }}"
+          if [ -n "$MARKER" ]; then
+            MARKER_FLAG="-m $MARKER"
+          else
+            MARKER_FLAG="-m regression"
+          fi
+          pytest $MARKER_FLAG \
+            --alluredir=allure-results \
+            --html=reports/regression-py${{ matrix.python-version }}.html \
+            --self-contained-html \
+            --tb=long \
+            -v \
+            --junitxml=reports/junit-py${{ matrix.python-version }}.xml
+
+      # Publish JUnit XML results as GitHub check annotations (inline in PR)
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: "Test Results (Python ${{ matrix.python-version }})"
+          path: "reports/junit-py*.xml"
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload regression report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-report-py${{ matrix.python-version }}
+          path: |
+            reports/
+            allure-results/
+            logs/
+          retention-days: 30
+
+
+  # ── Job 4: Parallel Tests (pytest-xdist) ──────────────────────────────────
+  parallel-tests:
+    name: "⚡ Parallel Tests (xdist)"
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run all tests in parallel
+        run: |
+          pytest -n auto \
+            --alluredir=allure-results \
+            --tb=short \
+            -v
+        # CONCEPT: -n auto uses all available CPU cores on the runner
+        # GitHub-hosted runners have 2 CPUs, so tests run 2x faster
+
+
+  # ── Job 5: Docker Build & Test ─────────────────────────────────────────────
+  docker-tests:
+    name: "🐳 Docker Build & Test"
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t pytest-api-framework:${{ github.sha }} .
+
+      - name: Run smoke tests inside Docker
+        run: |
+          docker run --rm \
+            -e ENV=dev \
+            -e PYTEST_ARGS="-m smoke -v" \
+            -v ${{ github.workspace }}/reports:/app/reports \
+            pytest-api-framework:${{ github.sha }}
+
+      - name: Upload Docker test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-test-report
+          path: reports/
+
+
+  # ── Job 6: Allure Report Generation ───────────────────────────────────────
+  allure-report:
+    name: "📊 Generate Allure Report"
+    runs-on: ubuntu-latest
+    needs: [regression-tests, parallel-tests]
+    if: always()  # always generate the report, even if tests fail
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download allure-results from previous jobs
+      - name: Download allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "regression-report-*"
+          merge-multiple: true
+          path: allure-results/
+
+      # CONCEPT: A dedicated Allure action that generates a beautiful HTML report
+      - name: Generate Allure Report
+        uses: simple-elf/allure-report-action@master
+        if: always()
+        with:
+          allure_results: allure-results
+          allure_report: allure-report
+          gh_pages: gh-pages
+          allure_history: allure-history
+
+      - name: Upload Allure Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-report
+          path: allure-report/
+          retention-days: 30
+
+      # Optional: deploy to GitHub Pages (uncomment if repo has Pages enabled)
+      # - name: Deploy to GitHub Pages
+      #   uses: peaceiris/actions-gh-pages@v3
+      #   if: github.ref == 'refs/heads/main'
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     publish_branch: gh-pages
+      #     publish_dir: allure-report
+
+
+  # ── Job 7: Notification (on failure) ──────────────────────────────────────
+  notify-on-failure:
+    name: "🔔 Notify on Failure"
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, regression-tests, docker-tests]
+    if: failure()  # only run this job if any previous job failed
+
+    steps:
+      - name: Print failure summary
+        run: |
+          echo "❌ One or more test jobs FAILED"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo ""
+          echo "View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      # CONCEPT: In a real project you'd add a step here to:
+      #   - Send a Slack notification: uses: 8398a7/action-slack@v3
+      #   - Send an email
+      #   - Create a Jira ticket
+      #   - Post to Microsoft Teams

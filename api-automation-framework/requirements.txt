@@ -1,0 +1,51 @@
+# =============================================================================
+# requirements.txt — Python dependency manifest
+# =============================================================================
+# Install all dependencies:
+#   pip install -r requirements.txt
+#
+# Pin exact versions for reproducible builds in CI/CD.
+# Upgrade a package: pip install --upgrade <package> && pip freeze > requirements.txt
+# =============================================================================
+
+# ── Core HTTP client ──────────────────────────────────────────────────────────
+requests==2.31.0          # HTTP client used by all API clients
+urllib3==2.1.0            # Used by requests for connection pooling + Retry
+
+# ── pytest core ───────────────────────────────────────────────────────────────
+pytest==8.1.1             # Core test runner
+
+# ── pytest plugins ────────────────────────────────────────────────────────────
+# CONCEPT: pytest's plugin ecosystem lets you extend its capabilities
+# by just installing packages — no configuration required.
+
+pytest-html==4.1.1        # Generate self-contained HTML reports
+                          # CLI: pytest --html=reports/report.html --self-contained-html
+
+pytest-xdist==3.5.0       # Run tests in PARALLEL across CPUs or machines
+                          # CLI: pytest -n auto (use all CPUs)
+                          #       pytest -n 4   (use 4 workers)
+
+pytest-rerunfailures==13.0 # Automatically re-run flaky tests
+                          # CLI: pytest --reruns 3 --reruns-delay 1
+
+pytest-timeout==2.3.1     # Fail tests that run longer than N seconds
+                          # Config: pytest --timeout=30
+                          #         or in pytest.ini: timeout = 30
+
+allure-pytest==2.13.2     # Allure report integration for pytest
+                          # CLI: pytest --alluredir=allure-results
+                          # View: allure serve allure-results
+
+# ── Data validation ───────────────────────────────────────────────────────────
+pydantic==2.6.4           # Type-safe data models for response validation
+                          # Validates types, constraints, nested objects
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1      # Load .env files for secrets/config
+                          # Usage: from dotenv import load_dotenv; load_dotenv()
+
+# ── Code quality (used in CI linting job) ─────────────────────────────────────
+flake8==7.0.0             # PEP8 style checker + syntax error detector
+black==24.3.0             # Opinionated code formatter
+isort==5.13.2             # Import order formatter

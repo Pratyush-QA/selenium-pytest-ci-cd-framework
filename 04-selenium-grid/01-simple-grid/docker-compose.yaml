@@ -1,0 +1,28 @@
+services:
+  hub:
+    image: selenium/hub:4.41.0
+    ports:
+      - 4444:4444
+#      - 4442:4442
+#      - 4443:4443
+
+  chrome:
+    image: selenium/node-chrome:4.41.0
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_POST=4442
+      - SE_EVENT_BUS_SUBSCRIBER_PORT=4443
+
+
+  firefox:
+    image: selenium/node-firefox:4.41.0
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_POST=4442
+      - SE_EVENT_BUS_SUBSCRIBER_PORT=4443
