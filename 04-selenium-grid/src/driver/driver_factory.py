@@ -51,7 +51,7 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-def _build_chrome_options(headless: bool) -> ChromeOptions:
+def _build_chrome_options(headless: bool, is_remote: bool = False) -> ChromeOptions:
     """
     Build ChromeOptions with production-grade settings for CI/CD stability.
 
@@ -64,30 +64,53 @@ def _build_chrome_options(headless: bool) -> ChromeOptions:
       --window-size            → Sets viewport; headless has no default window.
       --disable-extensions     → Faster startup, no extension interference.
       --disable-notifications  → Prevents notification popups breaking tests.
-      --remote-debugging-port  → Enables DevTools Protocol (useful for debugging).
+
+    CONCEPT: is_remote=True (Grid) vs is_remote=False (local):
+      --remote-debugging-port  → LOCAL ONLY. On Grid (SE_NODE_MAX_SESSIONS > 1),
+                                 multiple Chrome sessions share the same container.
+                                 Each tries to bind port 9222 → port conflict →
+                                 session fails. Never pass this flag to Grid.
+      --no-sandbox             → ALWAYS required inside Docker containers,
+                                 regardless of headless mode.
+      --disable-dev-shm-usage  → ALWAYS required in Docker (small /dev/shm).
+      excludeSwitches /        → LOCAL ONLY. Experimental options can cause
+      useAutomationExtension     instability on remote Grid sessions.
     """
     options = ChromeOptions()
 
     if headless:
         options.add_argument("--headless=new")      # newer, more reliable headless
-        options.add_argument("--no-sandbox")         # REQUIRED in Docker
-        options.add_argument("--disable-dev-shm-usage")  # REQUIRED in Docker
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
     else:
-        # Headed mode — still useful to standardise the window size
         options.add_argument("--start-maximized")
+
+    # Docker-required flags: needed whenever running inside a container
+    # (Grid nodes are always Docker) — also safe to add locally
+    if is_remote:
+        # REQUIRED on Grid: container runs as root, no sandbox available
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")  # small /dev/shm in Docker
+    elif headless:
+        # Local headless also benefits from these flags
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-popup-blocking")
-    options.add_argument("--remote-debugging-port=9222")
 
-    # Suppress "Chrome is being controlled by automated test software" banner
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    if not is_remote:
+        # LOCAL ONLY: --remote-debugging-port binds a fixed port (9222).
+        # On Grid with SE_NODE_MAX_SESSIONS > 1, all sessions run on the same
+        # container → multiple Chrome instances fight for port 9222 → 1 fails.
+        options.add_argument("--remote-debugging-port=9222")
 
-    log.debug("ChromeOptions built | headless=%s", headless)
+        # LOCAL ONLY: experimental options can cause instability on remote sessions
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+
+    log.debug("ChromeOptions built | headless=%s | is_remote=%s", headless, is_remote)
     return options
 
 
@@ -242,7 +265,7 @@ class DriverFactory:
             grid_url: full hub URL, e.g. "http://selenium-hub:4444/wd/hub"
         """
         if browser == "chrome":
-            options = _build_chrome_options(headless)
+            options = _build_chrome_options(headless, is_remote=True)   # ← is_remote=True avoids port 9222 conflict on Grid
         elif browser == "firefox":
             options = _build_firefox_options(headless)
         else:

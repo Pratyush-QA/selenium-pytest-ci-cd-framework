@@ -11,6 +11,8 @@ services:
     shm_size: '2g'
     depends_on:
       - hub
+    deploy:
+      replicas: 4
     environment:
       - SE_EVENT_BUS_HOST=hub
       - SE_EVENT_BUS_PUBLISH_PORT=4442
@@ -22,6 +24,8 @@ services:
     shm_size: '2g'
     depends_on:
       - hub
+    deploy:
+      replicas: 4
     environment:
       - SE_EVENT_BUS_HOST=hub
       - SE_EVENT_BUS_PUBLISH_PORT=4442

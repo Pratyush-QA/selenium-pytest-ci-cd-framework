@@ -15,6 +15,8 @@ RUN:
     pytest -m smoke -v
 """
 
+import time
+
 import pytest
 import allure
 
@@ -41,20 +43,24 @@ def test_valid_login_redirects_and_shows_success(login_page: LoginPage):
     """
     with allure.step("Open the login page"):
         login_page.open_login_page()
+        time.sleep(2)                           # 👁 watch: login page loaded on Grid UI
 
     with allure.step("Enter valid credentials and submit"):
         login_page.login(settings.valid_username, settings.valid_password)
+        time.sleep(2)                           # 👁 watch: credentials typed + submitted
 
     with allure.step("Assert redirect to /secure"):
         assert "secure" in login_page.get_current_url(), (
             f"Expected URL to contain 'secure', got: {login_page.get_current_url()}"
         )
+        time.sleep(2)                           # 👁 watch: /secure page visible on Grid UI
 
     with allure.step("Assert success flash message is visible"):
         assert login_page.is_logged_in(), "Logout button not visible after login"
         success_msg = login_page.get_success_message()
         allure.attach(success_msg, "Success Message", allure.attachment_type.TEXT)
         assert "You logged into a secure area!" in success_msg
+        time.sleep(2)                           # 👁 watch: success flash message visible
 
 
 @allure.feature("Login")
@@ -68,17 +74,21 @@ def test_logout_after_login(login_page: LoginPage):
         login_page.open_login_page().login(
             settings.valid_username, settings.valid_password
         )
+        time.sleep(2)                           # 👁 watch: logged in to /secure
 
     with allure.step("Click Logout"):
         login_page.click_logout()
+        time.sleep(2)                           # 👁 watch: logout clicked, redirecting
 
     with allure.step("Assert redirected back to login page"):
         assert "login" in login_page.get_current_url()
+        time.sleep(2)                           # 👁 watch: back on login page
 
     with allure.step("Assert login form is visible again"):
         assert login_page.is_element_visible(login_page.USERNAME_INPUT), (
             "Username input not visible after logout"
         )
+        time.sleep(2)                           # 👁 watch: login form visible again
 
 
 @allure.feature("Login")
@@ -124,9 +134,11 @@ def test_invalid_login_shows_error(
     """
     with allure.step(f"Attempt login with username='{username}'"):
         login_page.open_login_page().login(username, password)
+        time.sleep(2)                           # 👁 watch: invalid credentials typed + submitted
 
     with allure.step("Assert error message is displayed"):
         assert login_page.is_error_displayed(), "Error message not shown for invalid login"
+        time.sleep(2)                           # 👁 watch: error flash message visible on page
 
     with allure.step(f"Assert error contains: '{expected_error_fragment}'"):
         error_msg = login_page.get_error_message()
@@ -134,9 +146,11 @@ def test_invalid_login_shows_error(
         assert expected_error_fragment in error_msg, (
             f"Expected '{expected_error_fragment}' in error, got: '{error_msg}'"
         )
+        time.sleep(2)                           # 👁 watch: error text confirmed on Grid UI
 
     with allure.step("Assert user stays on login page (no redirect)"):
         assert "login" in login_page.get_current_url()
+        time.sleep(2)                           # 👁 watch: still on /login, no redirect
 
 
 @allure.feature("Login")
@@ -146,5 +160,7 @@ def test_invalid_login_shows_error(
 def test_login_page_title(login_page: LoginPage):
     """Verify the login page has the correct document title."""
     login_page.open_login_page()
+    time.sleep(2)                               # 👁 watch: login page loaded on Grid UI
     title = login_page.get_title()
     assert "The Internet" in title, f"Unexpected page title: '{title}'"
+    time.sleep(2)                               # 👁 watch: title verified, test finishing
