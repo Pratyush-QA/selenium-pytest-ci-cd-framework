@@ -1,5 +1,5 @@
 services:
   squares:
-    image: pratyushjindal123/sqaure-py
+    image: pratyushjindal123/squarefinder
     environment:
     - NUMBER=10

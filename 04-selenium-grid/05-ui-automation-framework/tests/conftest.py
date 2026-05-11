@@ -22,6 +22,7 @@ WHY function scope for the driver?
 
 import pytest
 import allure
+from pytest_html import extras as html_extras
 
 from config.settings import settings
 from src.driver.driver_factory import DriverFactory
@@ -130,6 +131,13 @@ def driver(request):
         grid_url=grid_url,
     )
 
+    # CONCEPT: Store driver directly on the item node so hooks can access it.
+    # Tests declare page object fixtures (login_page, checkbox_page etc),
+    # NOT driver directly → item.funcargs.get("driver") returns None in hooks.
+    # Storing on request.node makes the driver accessible via getattr(item, "_driver")
+    # in pytest_runtest_makereport, regardless of what the test declares.
+    request.node._driver = _driver
+
     yield _driver
 
     # ── Teardown: always runs, even on test failure ───────────────────────────
@@ -210,32 +218,104 @@ def windows_page(driver) -> WindowsPage:
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """
-    HOOK: Intercept test results to store outcome on the item node.
+    HOOK: Store test outcome AND capture screenshot base64 on the item node.
 
-    tryfirst=True  → run this before other hookwrappers
+    tryfirst=True    → run this before other hookwrappers
     hookwrapper=True → wrap around the actual test call
 
-    We store the report so the screenshot fixture can read it.
+    CONCEPT: WHY we only CAPTURE here, not attach to HTML:
+    ───────────────────────────────────────────────────────
+    pytest-html v4 manages extras through its own `extra` fixture + stash.
+    Setting report.extras directly here gets OVERWRITTEN by pytest-html's
+    internal `extra` fixture teardown which runs after this hook.
+
+    So we split the job into 2 steps:
+      Step 1 (HERE)   → capture screenshot base64 while driver is still alive
+                        store it on item._failure_screenshot
+      Step 2 (fixture) → attach_screenshot_to_html fixture reads it after test
+                         appends to `extra` fixture (pytest-html v4 proper API)
+                         `extra` fixture teardown then writes to report.extras ✅
+
+    Timeline:
+      call phase → hook fires → item._failure_screenshot = base64  ← HERE
+      teardown   → attach_screenshot_to_html → extra.append(image)
+                → extra fixture teardown    → report.extras.extend(list)
+                → driver.quit()
     """
     outcome = yield
     report  = outcome.get_result()
-    # Store the report for each phase: "setup", "call", "teardown"
+
+    # ── Store phase result on item for fixture teardown checks ────────────────
     setattr(item, f"rep_{report.when}", report)
+
+    # ── Capture screenshot base64 while driver is still alive ─────────────────
+    # Only capture during "call" phase (actual test body), not setup/teardown.
+    # item._driver is set by the driver fixture — always available regardless
+    # of whether the test function directly requests driver or login_page etc.
+    if report.when == "call" and report.failed:
+        driver = getattr(item, "_driver", None)
+        if driver:
+            try:
+                item._failure_screenshot = driver.get_screenshot_as_base64()
+                log.warning("📸 Screenshot captured for report: %s", item.name)
+            except Exception as exc:
+                log.error("Failed to capture screenshot: %s", exc)
+
+
+@pytest.fixture(autouse=True)
+def attach_screenshot_to_html(request, extra):
+    """
+    AUTO-USE fixture: attaches failure screenshot to pytest-html v4 report.
+
+    CONCEPT: pytest-html v4 extras API
+    ────────────────────────────────────
+    In pytest-html v4, the ONLY reliable way to embed extras in the HTML
+    report is through the `extra` fixture it provides. This fixture:
+      1. Yields a list you append to
+      2. In its OWN teardown, writes that list into report.extras
+      3. pytest-html reads report.extras when generating the final HTML
+
+    We DON'T set report.extras directly because pytest-html v4 overwrites it
+    via the `extra` fixture stash mechanism. Instead:
+      - The hook captures screenshot → stores on item._failure_screenshot
+      - This fixture reads it after test → appends to `extra` list
+      - `extra` fixture teardown runs AFTER this fixture teardown
+        (dependency order: this depends on extra → extra tears down last)
+        and writes our screenshot into report.extras ✅
+
+    WHY separate from take_screenshot_on_failure:
+      take_screenshot_on_failure depends on `driver` — for disk/Allure
+      attach_screenshot_to_html  depends on `extra`  — for HTML report
+      Keeping them separate ensures clean dependency chains.
+    """
+    yield  # test runs here
+
+    # ── Read screenshot stored by hook, attach to HTML report ─────────────────
+    screenshot = getattr(request.node, "_failure_screenshot", None)
+    if screenshot:
+        extra.append(
+            html_extras.image(
+                screenshot,
+                mime_type="image/png",
+                name=f"FAILURE: {request.node.name}",
+            )
+        )
+        log.info("📎 Screenshot attached to HTML report: %s", request.node.name)
 
 
 @pytest.fixture(autouse=True)
 def take_screenshot_on_failure(request, driver):
     """
-    AUTO-USE fixture: runs for every test automatically.
-    After the test, checks if it failed and takes a screenshot if so.
+    AUTO-USE fixture: saves screenshot to disk + attaches to Allure on failure.
 
     CONCEPT: autouse=True means this fixture applies to ALL tests in scope
     without needing to be listed as a parameter. It's invisible to tests.
 
-    Why autouse is appropriate here:
-      - Every UI test should auto-capture screenshots on failure
-      - No test should need to explicitly opt in
-      - The driver fixture is a dependency — runs only when driver is available
+    Responsibilities clearly split:
+    ────────────────────────────────
+    pytest_runtest_makereport hook  → captures base64,  stores on item node
+    attach_screenshot_to_html       → reads base64,     attaches to HTML report
+    take_screenshot_on_failure      → captures PNG,     saves to disk + Allure
     """
     yield  # test runs here
 
@@ -243,17 +323,17 @@ def take_screenshot_on_failure(request, driver):
     failed = getattr(request.node, "rep_call", None)
     if failed and failed.failed:
         test_name = request.node.name
-        log.warning("📸 Test FAILED — capturing screenshot: %s", test_name)
+        log.warning("📸 Test FAILED — saving screenshot to disk: %s", test_name)
 
         try:
-            name    = screenshot_name(test_name)
-            png     = driver.get_screenshot_as_png()
+            name     = screenshot_name(test_name)
+            png      = driver.get_screenshot_as_png()
             png_path = settings.screenshot_dir / f"{name}.png"
 
             # ── Save to disk ───────────────────────────────────────────────────
             with open(png_path, "wb") as f:
                 f.write(png)
-            log.info("Screenshot saved: %s", png_path)
+            log.info("Screenshot saved to disk: %s", png_path)
 
             # ── Attach to Allure report ────────────────────────────────────────
             # CONCEPT: allure.attach() embeds the PNG directly in the
@@ -265,16 +345,8 @@ def take_screenshot_on_failure(request, driver):
                 attachment_type=allure.attachment_type.PNG,
             )
 
-            # ── Attach to pytest-html report ──────────────────────────────────
-            # pytest-html uses extras to embed images in the HTML report
-            if hasattr(request.node, "extras"):
-                from pytest_html import extras as html_extras
-                request.node.extras.append(
-                    html_extras.image(str(png_path), name="Screenshot on failure")
-                )
-
         except Exception as exc:
-            log.error("Failed to capture screenshot: %s", exc)
+            log.error("Failed to save screenshot: %s", exc)
 
 
 # =============================================================================
@@ -283,6 +355,10 @@ def take_screenshot_on_failure(request, driver):
 
 def pytest_configure(config):
     """Attach environment information to the Allure report."""
+    # Ensure reports/ folder exists before pytest-html tries to write the report
+    from pathlib import Path
+    Path("reports").mkdir(exist_ok=True)
+
     log.info(
         "🔧 UI Framework starting | env=%s | base_url=%s | browser=%s",
         settings.environment, settings.base_url, settings.browser,
