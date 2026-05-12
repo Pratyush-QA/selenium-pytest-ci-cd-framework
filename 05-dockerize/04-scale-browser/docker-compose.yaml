@@ -1,0 +1,35 @@
+# =============================================================================
+# 04-scale-browser/docker-compose.yaml — Test services only
+# =============================================================================
+#
+# CONCEPT: ${BROWSER} environment variable drives which browser to use.
+# run.sh sets BROWSER=chrome or BROWSER=firefox before calling this file,
+# so the same compose file runs tests on either browser without editing.
+#
+# USAGE (via run.sh — don't run this file directly):
+#   sh run.sh
+# =============================================================================
+
+services:
+
+  smoke-tests:
+    build:
+      context: ../python-selenium
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=${BROWSER}
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+
+  regression-tests:
+    build:
+      context: ../python-selenium
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=${BROWSER}
+      - TEST_SUITE=regression
+    command: sh runner.sh
+    volumes:
+      - ./output/regression:/app/reports

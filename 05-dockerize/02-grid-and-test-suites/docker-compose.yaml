@@ -1,0 +1,87 @@
+# =============================================================================
+# 02-grid-and-test-suites/docker-compose.yaml
+# =============================================================================
+#
+# CONCEPT: Running different test suites against a Selenium Grid
+# ──────────────────────────────────────────────────────────────
+# Instead of a local Chrome inside the test container, we send WebDriver
+# commands to a remote Grid hub which routes them to registered browser nodes.
+#
+# CONCEPT: runner.sh — Hub Readiness Check
+# ─────────────────────────────────────────
+# `depends_on` only waits for containers to START, not for services to be READY.
+# The hub needs a few seconds before it accepts connections.
+# runner.sh polls http://hub:4444/status until ready=true, then starts tests.
+#
+# CONCEPT: Two test suites running in parallel
+# ─────────────────────────────────────────────
+# smoke-tests  → @pytest.mark.smoke  → Chrome  → fast sanity checks
+# login-tests  → @pytest.mark.login  → Firefox → login-specific tests
+# Both run simultaneously against the same Grid.
+#
+# USAGE:
+#   docker-compose up --build
+#   docker-compose down
+# =============================================================================
+
+services:
+
+  # ── Selenium Grid Hub ───────────────────────────────────────────────────────
+  hub:
+    image: selenium/hub:4.18.1
+    ports:
+      - "4444:4444"
+
+  # ── Chrome Node ─────────────────────────────────────────────────────────────
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4
+
+  # ── Firefox Node ────────────────────────────────────────────────────────────
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4
+
+  # ── Smoke Test Suite (Chrome) ────────────────────────────────────────────────
+  smoke-tests:
+    build:
+      context: ../python-selenium
+    depends_on:
+      - chrome
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=chrome
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+
+  # ── Login Test Suite (Firefox) ───────────────────────────────────────────────
+  login-tests:
+    build:
+      context: ../python-selenium
+    depends_on:
+      - firefox
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=firefox
+      - TEST_SUITE=login
+    command: sh runner.sh
+    volumes:
+      - ./output/login:/app/reports

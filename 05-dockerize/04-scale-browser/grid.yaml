@@ -1,0 +1,51 @@
+# =============================================================================
+# grid.yaml — Selenium Grid infrastructure only (hub + browser nodes)
+# =============================================================================
+#
+# CONCEPT: Split docker-compose files (separation of concerns)
+# ─────────────────────────────────────────────────────────────
+# We split Grid infra and test services into two files so we can:
+#   1. Scale browser nodes independently (--scale chrome=3)
+#   2. Start/stop the Grid without touching test services
+#   3. Run different test suites against the same running Grid
+#
+# replicas: 0 → nodes start with zero instances; scaled up by run.sh
+#
+# USAGE (via run.sh — don't run this file directly):
+#   sh run.sh
+# =============================================================================
+
+services:
+
+  hub:
+    image: selenium/hub:4.18.1
+    ports:
+      - "4444:4444"
+
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0      # scaled dynamically by run.sh (--scale chrome=N)
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4
+
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0      # scaled dynamically by run.sh (--scale firefox=N)
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4

@@ -1,0 +1,83 @@
+# =============================================================================
+# 03-providing-test-data/docker-compose.yaml
+# =============================================================================
+#
+# CONCEPT: Injecting external test data via Docker volumes
+# ─────────────────────────────────────────────────────────
+# Test data (credentials, URLs, config) is mounted from the HOST into the
+# container at runtime. This means you can change test data WITHOUT rebuilding
+# the Docker image — useful for running the same tests against different
+# environments or datasets.
+#
+# Volume mount syntax:
+#   - ./test-data/config.json:/app/config/test-data.json:ro
+#     host path  ─────────────────────────  container path  ──  read-only
+#
+# USAGE:
+#   docker-compose up --build
+#   docker-compose down
+#
+# To use different data, edit test-data/config.json and re-run — no rebuild.
+# =============================================================================
+
+services:
+
+  hub:
+    image: selenium/hub:4.18.1
+    ports:
+      - "4444:4444"
+
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4
+
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    environment:
+      - SE_EVENT_BUS_HOST=hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_NODE_MAX_SESSIONS=4
+
+  # ── Smoke tests with external config override ───────────────────────────────
+  smoke-tests:
+    build:
+      context: ../python-selenium
+    depends_on:
+      - chrome
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=chrome
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+      # CONCEPT: Override config.ini at runtime without rebuilding the image.
+      # Any key in this JSON file takes precedence over config/config.ini values.
+      - ./test-data/config.json:/app/config/test-data.json:ro
+
+  login-tests:
+    build:
+      context: ../python-selenium
+    depends_on:
+      - firefox
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=firefox
+      - TEST_SUITE=login
+    command: sh runner.sh
+    volumes:
+      - ./output/login:/app/reports
+      - ./test-data/config.json:/app/config/test-data.json:ro
