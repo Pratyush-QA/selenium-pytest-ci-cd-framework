@@ -85,16 +85,13 @@ def _build_chrome_options(headless: bool, is_remote: bool = False) -> ChromeOpti
     else:
         options.add_argument("--start-maximized")
 
-    # Docker-required flags: needed whenever running inside a container
-    # (Grid nodes are always Docker) — also safe to add locally
+    # Docker-required flags: only needed when running on Grid/Docker.
+    # is_remote already covers CI/CD (CI always uses --grid flag → is_remote=True).
+    # headless condition removed — redundant, local headless does not need these.
     if is_remote:
         # REQUIRED on Grid: container runs as root, no sandbox available
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")  # small /dev/shm in Docker
-    elif headless:
-        # Local headless also benefits from these flags
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
 
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-notifications")
