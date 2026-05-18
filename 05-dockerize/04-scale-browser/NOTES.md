@@ -257,3 +257,91 @@ build: ../python-selenium -> tells Compose how to create that image
 ```
 
 Without `image`, Compose creates an automatic project/service-based image name. With `image`, the name is predictable: `python-selenium`.
+## Why Two Compose Files If We Already Have `runner.sh`?
+
+This is the key distinction:
+
+```text
+runner.sh      = readiness check
+2 compose files = lifecycle/control separation
+```
+
+`runner.sh` answers this question:
+
+```text
+Is the Selenium Grid hub ready to accept WebDriver requests?
+```
+
+It prevents this issue:
+
+```text
+container started, but hub service not ready yet -> test fails with connection refused
+```
+
+The two compose files answer a different question:
+
+```text
+Can I manage Grid infrastructure separately from test runner containers?
+```
+
+So these two files are not required because of readiness. Readiness is already handled by `runner.sh`.
+
+They are used to keep responsibilities separate:
+
+```text
+grid.yaml             = long-running infrastructure: hub, chrome nodes, firefox nodes
+docker-compose.yaml   = short-running test jobs: smoke-tests, regression-tests
+```
+
+Could this be done with a single compose file?
+
+Yes.
+
+A single compose file with `runner.sh` would still work.
+
+But with one file, infra and test jobs are mixed together:
+
+```text
+hub
+chrome
+firefox
+smoke-tests
+regression-tests
+```
+
+Then when you only want to scale browser nodes, you must be careful not to start test jobs accidentally.
+
+With two files:
+
+```bash
+docker compose -f grid.yaml up --scale chrome=2 -d
+```
+
+means:
+
+```text
+Only Grid infrastructure starts or changes.
+No tests run.
+```
+
+And:
+
+```bash
+BROWSER=chrome docker compose -f docker-compose.yaml up --build
+```
+
+means:
+
+```text
+Only test containers run.
+They connect to the already-running Grid.
+```
+
+Final rule:
+
+```text
+runner.sh is for WHEN to start tests.
+2 compose files are for WHAT to start and control separately.
+```
+
+So two files are not mandatory, but they make the scaling example cleaner and easier to reason about.
