@@ -206,3 +206,54 @@ run.sh
 ```
 
 This is the Dockerized way to run the same automation suite across browsers while controlling how many browser containers are available.
+## `image` + `build` + `--build` Flow
+
+In `docker-compose.yaml`, each test service has both:
+
+```yaml
+image: python-selenium
+build:
+  context: ../python-selenium
+```
+
+This means:
+
+```text
+Build the image from ../python-selenium/Dockerfile,
+but name/tag the final image as python-selenium.
+```
+
+If the image does not exist:
+
+```text
+docker compose up --build
+  -> builds image from ../python-selenium
+  -> tags it as python-selenium
+  -> starts smoke-tests and regression-tests containers
+```
+
+If the image already exists:
+
+```text
+docker compose up --build
+  -> still rebuilds/checks the image first
+  -> Docker cache may make it fast
+  -> starts containers using the refreshed python-selenium image
+```
+
+If you run without `--build`:
+
+```text
+docker compose up
+  -> if python-selenium exists, use existing image
+  -> if image is missing, build it from build context
+```
+
+Why keep both `image` and `build`?
+
+```text
+image: python-selenium  -> gives a clean reusable image name
+build: ../python-selenium -> tells Compose how to create that image
+```
+
+Without `image`, Compose creates an automatic project/service-based image name. With `image`, the name is predictable: `python-selenium`.
