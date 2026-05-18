@@ -345,3 +345,47 @@ runner.sh is for WHEN to start tests.
 ```
 
 So two files are not mandatory, but they make the scaling example cleaner and easier to reason about.
+## Grid Scaling vs Pytest Parallel Execution
+
+Scaling the Grid only creates browser capacity. It does not make pytest run tests in parallel by itself.
+
+```text
+Grid scaling = how many browser sessions are available
+pytest -n    = how many tests run at the same time
+```
+
+Example:
+
+```text
+--scale chrome=2
+SE_NODE_MAX_SESSIONS=4
+```
+
+Total Chrome capacity:
+
+```text
+2 Chrome node containers x 4 sessions each = 8 available browser sessions
+```
+
+But without pytest-xdist:
+
+```bash
+pytest -m regression
+```
+
+Tests still run mostly one by one.
+
+To actually use multiple Grid sessions, run pytest with `-n`:
+
+```bash
+pytest -m regression -n 4
+```
+
+Then up to 4 tests can run at the same time, and each worker can create its own browser session.
+
+Final rule:
+
+```text
+Scale Grid to provide capacity.
+Use pytest -n to consume that capacity.
+```
