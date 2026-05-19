@@ -1,0 +1,36 @@
+# Tool / IDE folders
+.claude/
+.idea/
+.vscode/
+
+# Python / virtualenv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+*.egg-info/
+build/
+dist/
+
+# Environment
+.env
+.env.local
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Test output / generated reports
+**/output/
+**/reports/assets/
+**/reports/*.html
+**/reports/*.xml
+**/allure-results/
+**/allure-report/
+**/logs/*.log
+**/screenshots/*.png
+
+# External course/reference repos kept locally only
+selenium-docker/

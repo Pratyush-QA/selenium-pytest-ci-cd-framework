@@ -21,9 +21,19 @@ This is the Python equivalent of the Java `selenium-docker/05-dockerize` project
 
 ## Key Concepts
 
+### Dockerfile - Test Runner Image
+
+The Dockerfile builds the Python Selenium test-runner image. It covers the base Python image, environment variables, Chrome/system dependencies, Python dependencies, project copy, output folders, and default test command.
+
+Detailed Section A notes are here: [`section-a-dockerfile-notes.md`](./section-a-dockerfile-notes.md)
+
 ### runner.sh — Hub Readiness Check
 
 The most important new concept in this module. `docker-compose depends_on` only waits for a container to **start**, not for the service inside it to be **ready**.
+
+`runner.sh` is a shell script used by the test container to wait for Selenium Hub first, then run pytest against the Grid.
+
+Detailed Section B notes are here: [`section-b-runner-sh-notes.md`](./section-b-runner-sh-notes.md)
 
 `runner.sh` solves this by polling the hub's `/status` endpoint until it returns `ready: true`, then running pytest:
 
@@ -35,6 +45,12 @@ do
 done
 pytest --grid --grid-url http://hub:4444/wd/hub -m smoke
 ```
+
+### docker-compose.yml - Service Orchestration
+
+The compose file defines how test containers, optional Selenium Grid services, networks, volumes, and report services are started together.
+
+Detailed Section C notes are here: [`section-c-docker-compose-notes.md`](./section-c-docker-compose-notes.md)
 
 ### Environment Variables
 

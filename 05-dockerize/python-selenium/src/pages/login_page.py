@@ -89,7 +89,10 @@ class LoginPage(BasePage):
 
     def click_logout(self) -> "LoginPage":
         """Click the Logout button (visible after successful login)."""
-        self.click(self.LOGOUT_BUTTON)
+        logout = self.wait_for_clickable(self.LOGOUT_BUTTON)
+        self.driver.execute_script("arguments[0].click();", logout)
+        self.wait_for_url_contains("login")
+        self.wait_for_visible(self.USERNAME_INPUT)
         return self
 
     # ── State Queries ─────────────────────────────────────────────────────────

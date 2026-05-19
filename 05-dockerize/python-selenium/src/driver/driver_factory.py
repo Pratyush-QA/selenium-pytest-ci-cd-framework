@@ -39,6 +39,8 @@ Usage in tests (via fixture — you never call this directly):
     driver.quit()
 """
 
+import os
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -49,6 +51,11 @@ from config.settings import settings
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _is_running_in_container() -> bool:
+    """Return True when the framework is running inside a Docker container."""
+    return os.path.exists("/.dockerenv") or os.getenv("ENV", "").lower() == "ci"
 
 
 def _build_chrome_options(headless: bool, is_remote: bool = False) -> ChromeOptions:
@@ -85,11 +92,11 @@ def _build_chrome_options(headless: bool, is_remote: bool = False) -> ChromeOpti
     else:
         options.add_argument("--start-maximized")
 
-    # Docker-required flags: only needed when running on Grid/Docker.
-    # is_remote already covers CI/CD (CI always uses --grid flag → is_remote=True).
-    # headless condition removed — redundant, local headless does not need these.
-    if is_remote:
-        # REQUIRED on Grid: container runs as root, no sandbox available
+    # Docker-required flags: needed for both standalone Docker and Grid nodes.
+    is_container = _is_running_in_container()
+
+    if is_remote or is_container:
+        # Required in Docker because containers often run as root with small /dev/shm.
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")  # small /dev/shm in Docker
 
@@ -97,10 +104,12 @@ def _build_chrome_options(headless: bool, is_remote: bool = False) -> ChromeOpti
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-popup-blocking")
 
-    if not is_remote:
+    if not is_remote and not is_container:
         # LOCAL ONLY: --remote-debugging-port binds a fixed port (9222).
         # On Grid with SE_NODE_MAX_SESSIONS > 1, all sessions run on the same
         # container → multiple Chrome instances fight for port 9222 → 1 fails.
+        # In standalone Docker parallel runs, multiple local Chrome instances
+        # can hit the same issue, so avoid this flag inside containers too.
         options.add_argument("--remote-debugging-port=9222")
 
         # LOCAL ONLY: experimental options can cause instability on remote sessions
@@ -257,8 +266,8 @@ class DriverFactory:
         The test code is identical — only the driver creation differs.
 
         Args:
-            browser:  "chrome" or "firefox"
-            headless: passed to the options builder (Grid nodes support headless)
+            browser: "chrome" or "firefox"
+            headless: passed to the option builder (Grid nodes support headless)
             grid_url: full hub URL, e.g. "http://selenium-hub:4444/wd/hub"
         """
         if browser == "chrome":

@@ -53,6 +53,7 @@ services:
 
   # ── Smoke tests with external config override ───────────────────────────────
   smoke-tests:
+    image: python-selenium
     build:
       context: ../python-selenium
     depends_on:
@@ -69,6 +70,7 @@ services:
       - ./test-data/config.json:/app/config/test-data.json:ro
 
   login-tests:
+    image: python-selenium
     build:
       context: ../python-selenium
     depends_on:

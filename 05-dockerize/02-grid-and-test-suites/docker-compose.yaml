@@ -60,6 +60,7 @@ services:
 
   # ── Smoke Test Suite (Chrome) ────────────────────────────────────────────────
   smoke-tests:
+    image: python-selenium
     build:
       context: ../python-selenium
     depends_on:
@@ -74,6 +75,7 @@ services:
 
   # ── Login Test Suite (Firefox) ───────────────────────────────────────────────
   login-tests:
+    image: python-selenium
     build:
       context: ../python-selenium
     depends_on:

@@ -51,7 +51,6 @@ class IframePage(BasePage):
         log.info("Typing '%s' into iframe editor", text)
         self.switch_to_frame(self.IFRAME)
         body = self.wait_for_visible(self.EDITOR_BODY)
-        body.clear()
-        body.send_keys(text)
+        self.driver.execute_script("arguments[0].textContent = arguments[1];", body, text)
         self.switch_to_default()
         return self

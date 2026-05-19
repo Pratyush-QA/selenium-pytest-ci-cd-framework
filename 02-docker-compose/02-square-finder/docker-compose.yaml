@@ -1,5 +1,6 @@
 services:
   squares:
+    #this below image (squarefinder) should be present in your dockerhub, if not then first create it and push to dockerhub
     image: pratyushjindal123/squarefinder
     environment:
     - NUMBER=10
