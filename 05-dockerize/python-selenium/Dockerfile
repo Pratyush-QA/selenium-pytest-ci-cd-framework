@@ -1,30 +1,14 @@
 # =============================================================================
-# Dockerfile — UI Selenium framework in Docker with Chrome headless
+# Dockerfile - UI Selenium framework in Docker with Chrome headless
 # =============================================================================
+# Objective:
+#   Build a test-runner image containing Python, project dependencies,
+#   Google Chrome, and matching ChromeDriver.
 #
-# CONCEPT: Running Selenium in Docker
-# ────────────────────────────────────
-# Normal Selenium needs a real desktop + browser installed.
-# Docker solves this by bundling Chrome + ChromeDriver into the image.
-#
-# We use the official Selenium standalone Chrome image as our base.
-# It provides:
-#   - Google Chrome (stable)
-#   - ChromeDriver (matching version, auto-managed)
-#   - Xvfb virtual framebuffer (for headed mode inside Docker)
-#   - VNC + noVNC for watching tests live in a browser
-#
-# BUILD:
-#   docker build -t ui-automation-framework .
-#
-# RUN ALL TESTS (headless):
-#   docker run --rm ui-automation-framework
-#
-# RUN SMOKE ONLY:
-#   docker run --rm -e PYTEST_ARGS="-m smoke" ui-automation-framework
-#
-# RUN HEADED (with VNC, see below via docker-compose):
-#   docker-compose up tests-headed
+# Why install ChromeDriver in the image?
+#   Selenium Manager can download ChromeDriver at runtime, but that requires
+#   network/DNS inside the running container. Baking ChromeDriver into the image
+#   makes docker run more stable and repeatable.
 # =============================================================================
 
 FROM python:3.11-slim
@@ -40,10 +24,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTEST_ARGS="" \
     DISPLAY=:99
 
-# ── Install Chrome + ChromeDriver + system deps ───────────────────────────────
-# CONCEPT: We install Chrome directly in the image.
-# Selenium Manager (Selenium 4.6+) auto-downloads ChromeDriver at runtime
-# matching the installed Chrome version — no version pinning needed.
+# Install Chrome, matching ChromeDriver, and system libraries required by Chrome.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         curl \
@@ -77,6 +58,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends google-chrome-stable \
+    && CHROME_VERSION=$(google-chrome --product-version) \
+    && echo "Installing ChromeDriver for Chrome ${CHROME_VERSION}" \
+    && wget -q -O /tmp/chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" \
+    && unzip -q /tmp/chromedriver.zip -d /tmp/chromedriver \
+    && mv /tmp/chromedriver/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/local/bin/chromedriver \
+    && chromedriver --version \
+    && rm -rf /tmp/chromedriver /tmp/chromedriver.zip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -92,5 +81,6 @@ COPY . .
 RUN chmod +x runner.sh \
     && mkdir -p screenshots reports logs allure-results
 
-# ── Default: run tests locally (headless). Use runner.sh when targeting Grid. ─
+# Default: run tests locally inside this container. Compose can override this
+# with `command: sh runner.sh` when the tests should target Selenium Grid.
 CMD ["sh", "-c", "pytest ${PYTEST_ARGS} --headless"]
