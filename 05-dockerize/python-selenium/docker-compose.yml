@@ -1,33 +1,36 @@
 # =============================================================================
-# docker-compose.yml — UI framework multiservice setup
+# docker-compose.yml - Python Selenium framework control panel
 # =============================================================================
+# This file is the final framework-level compose file. It can run the same
+# Dockerized framework in different modes:
+#   - local browser inside the test container
+#   - parallel local browser execution
+#   - Selenium Grid execution
+#   - Allure report viewing
 #
-# SERVICES:
-#   tests         → run all tests headless (CI mode)
-#   smoke         → run only smoke tests
-#   regression    → run only regression tests
-#   parallel      → run tests with pytest-xdist in parallel
-#   selenium-hub  → Selenium Grid hub (for distributed testing)
-#   chrome-node   → Selenium Grid Chrome node
-#   grid-tests    → tests running against the Selenium Grid
+# Common commands:
+#   docker compose --profile local up --build smoke
+#   docker compose --profile local up --build regression
+#   docker compose --profile local up --build parallel
+#   docker compose --profile grid up --build grid-tests
+#   docker compose --profile report up allure-server
 #
-# COMMANDS:
-#   docker-compose up tests
-#   docker-compose up smoke
-#   docker-compose --profile grid up selenium-hub chrome-node grid-tests
-#   docker-compose up allure-server --profile report
+# Important:
+#   All runnable services are behind profiles. This prevents plain
+#   `docker compose up` from accidentally starting every test service.
 # =============================================================================
 
-version: "3.9"
+x-base-env: &base-env
+  ENV: ${ENV:-ci}
+  HEADLESS: "true"
+  PYTHONPATH: /app
 
-x-base: &base
+x-test-runner: &test-runner
+  image: python-selenium
   build:
     context: .
     dockerfile: Dockerfile
-  environment:
-    - ENV=${ENV:-ci}
-    - HEADLESS=true
-    - PYTHONPATH=/app
+  environment: *base-env
   volumes:
     - ./screenshots:/app/screenshots
     - ./reports:/app/reports
@@ -38,10 +41,16 @@ x-base: &base
 
 services:
 
-  # ── All tests headless ────────────────────────────────────────────────────
+  # ---------------------------------------------------------------------------
+  # Local Docker test runners
+  # ---------------------------------------------------------------------------
+  # These services run Chrome inside the python-selenium test container.
+  # They do NOT use Selenium Grid.
+
   tests:
-    <<: *base
+    <<: *test-runner
     container_name: ui-tests-all
+    profiles: ["local"]
     command: >
       pytest --headless
       --alluredir=allure-results
@@ -49,10 +58,10 @@ services:
       --self-contained-html
       -v
 
-  # ── Smoke tests ───────────────────────────────────────────────────────────
   smoke:
-    <<: *base
+    <<: *test-runner
     container_name: ui-tests-smoke
+    profiles: ["local"]
     command: >
       pytest -m smoke --headless
       --alluredir=allure-results
@@ -60,10 +69,10 @@ services:
       --self-contained-html
       -v
 
-  # ── Regression tests ──────────────────────────────────────────────────────
   regression:
-    <<: *base
+    <<: *test-runner
     container_name: ui-tests-regression
+    profiles: ["local"]
     command: >
       pytest -m regression --headless
       --alluredir=allure-results
@@ -71,68 +80,93 @@ services:
       --self-contained-html
       -v
 
-  # ── Parallel tests (pytest-xdist) ─────────────────────────────────────────
-  # CONCEPT: -n auto uses all available CPUs to run tests simultaneously.
-  # NOTE: Each parallel worker gets its own browser instance.
-  # Avoid shared state between tests — each must be fully independent.
   parallel:
-    <<: *base
+    <<: *test-runner
     container_name: ui-tests-parallel
+    profiles: ["local"]
     command: >
       pytest -n auto --headless
       --alluredir=allure-results
+      --html=reports/parallel-report.html
+      --self-contained-html
       -v
 
-  # ── Selenium Grid Hub ─────────────────────────────────────────────────────
-  # CONCEPT: Selenium Grid lets you run tests on REMOTE browsers.
-  # The hub routes test commands to registered nodes.
-  # Nodes can run on different machines (or containers).
+  # ---------------------------------------------------------------------------
+  # Selenium Grid infrastructure
+  # ---------------------------------------------------------------------------
+  # Hub receives WebDriver requests. Chrome node registers with the hub and
+  # creates real browser sessions.
+
   selenium-hub:
     image: selenium/hub:4.18.1
     container_name: selenium-hub
+    profiles: ["grid"]
     ports:
-      - "4442:4442"   # hub publish port
-      - "4443:4443"   # hub subscribe port
-      - "4444:4444"   # WebDriver endpoint (tests connect here)
+      - "4442:4442"   # internal event bus publish port
+      - "4443:4443"   # internal event bus subscribe port
+      - "4444:4444"   # WebDriver endpoint and Grid UI
     networks:
       - ui-test-network
-    profiles:
-      - grid
 
-  # ── Chrome Node for Grid ──────────────────────────────────────────────────
   chrome-node:
     image: selenium/node-chrome:4.18.1
     container_name: selenium-chrome-node
-    shm_size: 2gb        # Chrome needs shared memory to avoid crashes
+    profiles: ["grid"]
+    shm_size: 2gb
     depends_on:
       - selenium-hub
     environment:
-      - SE_EVENT_BUS_HOST=selenium-hub
-      - SE_EVENT_BUS_PUBLISH_PORT=4442
-      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
-      - SE_NODE_MAX_SESSIONS=2   # allow 2 concurrent Chrome instances on this node
+      SE_EVENT_BUS_HOST: selenium-hub
+      SE_EVENT_BUS_PUBLISH_PORT: 4442
+      SE_EVENT_BUS_SUBSCRIBE_PORT: 4443
+      SE_NODE_OVERRIDE_MAX_SESSIONS: "true"
+      SE_NODE_MAX_SESSIONS: 2
+      SE_VNC_NO_PASSWORD: 1
     ports:
-      - "7900:7900"     # noVNC — watch tests live at http://localhost:7900
+      - "7900:7900"   # noVNC - watch tests at http://localhost:7900
     networks:
       - ui-test-network
-    profiles:
-      - grid
 
-  # ── Allure Report Server ──────────────────────────────────────────────────
+  # ---------------------------------------------------------------------------
+  # Grid test runner
+  # ---------------------------------------------------------------------------
+  # This service uses runner.sh. runner.sh waits until Selenium Hub is ready,
+  # then runs pytest with --grid and --grid-url.
+
+  grid-tests:
+    <<: *test-runner
+    container_name: ui-tests-grid
+    profiles: ["grid"]
+    depends_on:
+      - selenium-hub
+      - chrome-node
+    environment:
+      <<: *base-env
+      HUB_HOST: selenium-hub
+      BROWSER: ${BROWSER:-chrome}
+      TEST_SUITE: ${TEST_SUITE:-smoke}
+      PYTEST_ARGS: ${PYTEST_ARGS:-}
+    command: sh runner.sh
+
+  # ---------------------------------------------------------------------------
+  # Allure report server
+  # ---------------------------------------------------------------------------
+  # Reads ./allure-results and serves report UI in the browser.
+  # Uses host port 8082 to avoid common Jenkins conflict on 8080/8081.
+
   allure-server:
     image: frankescobar/allure-docker-service:latest
     container_name: allure-server
+    profiles: ["report"]
     environment:
       CHECK_RESULTS_EVERY_SECONDS: 3
       KEEP_HISTORY: 1
     ports:
-      - "8080:5050"
+      - "8082:5050"
     volumes:
       - ./allure-results:/app/allure-results
     networks:
       - ui-test-network
-    profiles:
-      - report
 
 networks:
   ui-test-network:
