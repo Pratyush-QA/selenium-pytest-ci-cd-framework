@@ -21,12 +21,15 @@
 pipeline {
 
     agent {
-        label 'Node1'
+        node {
+            label 'Node1'
+            customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
+        }
     }
 
     environment {
-        IMAGE_NAME = 'pratyushjindal123/python-selenium'
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        IMAGE_NAME  = 'pratyushjindal123/python-selenium'
+        IMAGE_TAG   = "${env.BUILD_NUMBER}"
         PROJECT_DIR = 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace/05-dockerize/python-selenium'
     }
 
