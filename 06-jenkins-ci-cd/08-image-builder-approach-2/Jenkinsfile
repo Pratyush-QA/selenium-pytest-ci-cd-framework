@@ -1,0 +1,65 @@
+/*
+    Image Builder - Approach 2
+
+    Objective:
+    - Build the Python Selenium framework Docker image.
+    - Push it to Docker Hub.
+
+    This is the recommended version for your current Jenkins setup:
+    - Jenkins controller runs in Docker.
+    - Node1 is your Windows machine.
+    - Therefore we use bat commands, not sh commands.
+
+    Prerequisite in Jenkins:
+    - Create username/password credential with id: dockerhub-creds
+    - Update IMAGE_NAME if your Docker Hub repo name is different.
+
+    Difference from Approach 1:
+    - Uses docker login --password-stdin.
+    - This avoids passing password directly with -p.
+*/
+pipeline {
+
+    agent {
+        label 'Node1'
+    }
+
+    environment {
+        IMAGE_NAME = 'pratyushjindal123/python-selenium'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        PROJECT_DIR = 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace/05-dockerize/python-selenium'
+    }
+
+    stages {
+
+        stage('Validate Project') {
+            steps {
+                bat 'if not exist "%PROJECT_DIR%/Dockerfile" (echo Dockerfile not found at %PROJECT_DIR% && exit /b 1)'
+                bat 'if not exist "%PROJECT_DIR%/requirements.txt" (echo requirements.txt not found at %PROJECT_DIR% && exit /b 1)'
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                bat 'docker build -t %IMAGE_NAME%:%IMAGE_TAG% -t %IMAGE_NAME%:latest "%PROJECT_DIR%"'
+            }
+        }
+
+        stage('Push Image') {
+            environment {
+                DOCKER_HUB = credentials('dockerhub-creds')
+            }
+            steps {
+                bat 'echo %DOCKER_HUB_PSW% | docker login -u %DOCKER_HUB_USR% --password-stdin'
+                bat 'docker push %IMAGE_NAME%:%IMAGE_TAG%'
+                bat 'docker push %IMAGE_NAME%:latest'
+            }
+        }
+    }
+
+    post {
+        always {
+            bat 'docker logout'
+        }
+    }
+}

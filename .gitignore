@@ -34,3 +34,6 @@ __MACOSX/
 
 # External course/reference repos kept locally only
 selenium-docker/
+
+# Jenkins runtime data (plugins, builds, logs — generated, not source code)
+**/volumes/

@@ -1,31 +1,31 @@
 # =============================================================================
-# requirements.txt — UI Selenium Framework dependencies
+# requirements.txt - UI Selenium Framework dependencies
 # =============================================================================
 # Install: pip install -r requirements.txt
 # =============================================================================
 
-# ── Selenium ──────────────────────────────────────────────────────────────────
+# Selenium
 selenium==4.18.1          # Core browser automation library
                           # 4.6+ includes Selenium Manager (auto ChromeDriver)
 
-# ── Optional: explicit driver manager ────────────────────────────────────────
+# Optional: explicit driver manager
 # Uncomment to use driver_mode = webdriver_manager in config.ini
 # webdriver-manager==4.0.1
 
-# ── pytest core ───────────────────────────────────────────────────────────────
+# pytest core
 pytest==8.1.1
 
-# ── pytest plugins ────────────────────────────────────────────────────────────
+# pytest plugins
 pytest-html==4.1.1        # HTML reports
 pytest-xdist==3.5.0       # Parallel test execution (-n auto)
 pytest-rerunfailures==13.0 # Retry flaky tests (--reruns 2)
 pytest-timeout==2.3.1     # Fail tests that hang (--timeout=60)
-allure-pytest==2.13.2     # Allure report integration
+allure-pytest==2.13.5     # Allure report integration
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+# Utilities
 python-dotenv==1.0.1      # Load .env files for secrets
 
-# ── Code quality ──────────────────────────────────────────────────────────────
+# Code quality
 flake8==7.0.0
 black==24.3.0
 isort==5.13.2
