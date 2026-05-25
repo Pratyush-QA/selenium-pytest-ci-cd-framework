@@ -33,6 +33,8 @@ services:
     command: sh runner.sh
     volumes:
       - ./output/smoke:/app/reports
+    networks:
+      - selenium-grid
 
   # ── Regression test suite ───────────────────────────────────────────────────
   regression-tests:
@@ -44,3 +46,11 @@ services:
     command: sh runner.sh
     volumes:
       - ./output/regression:/app/reports
+    networks:
+      - selenium-grid
+
+# CONCEPT: external: true → join existing network created by grid.yaml
+# hub reachable from test containers by name "hub" ✓
+networks:
+  selenium-grid:
+    external: true

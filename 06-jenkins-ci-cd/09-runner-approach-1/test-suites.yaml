@@ -39,6 +39,8 @@ services:
     command: sh runner.sh
     volumes:
       - ./output/smoke:/app/reports
+    networks:
+      - selenium-grid
 
   # ── Login test suite → Firefox ─────────────────────────────────────────────
   login-tests:
@@ -50,3 +52,12 @@ services:
     command: sh runner.sh
     volumes:
       - ./output/login:/app/reports
+    networks:
+      - selenium-grid
+
+# CONCEPT: external: true → don't create a new network
+# Join the existing selenium-grid network created by grid.yaml
+# This makes hub reachable from test containers by name "hub"
+networks:
+  selenium-grid:
+    external: true
