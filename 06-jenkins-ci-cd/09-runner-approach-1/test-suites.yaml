@@ -1,0 +1,52 @@
+# =============================================================================
+# test-suites.yaml — Test services (smoke + login suites)
+# =============================================================================
+#
+# CONCEPT: Fixed browser per test suite
+# ───────────────────────────────────────
+# Each test suite runs on a fixed browser — no parameter needed:
+#   smoke-tests  → Chrome  (fast sanity checks)
+#   login-tests  → Firefox (login-specific tests)
+#
+# Both services run simultaneously against the same Grid hub.
+#
+# CONCEPT: --pull=always in Jenkinsfile
+# ───────────────────────────────────────
+# Jenkins passes --pull=always when running this file so Docker always
+# pulls the latest image from Docker Hub (built by image-builder pipeline).
+# This ensures tests always run against the freshly built image.
+#
+# CONCEPT: runner.sh
+# ───────────────────
+# Our python-selenium image contains runner.sh which:
+#   1. Polls http://hub:4444/status until ready=true
+#   2. Then runs: pytest --grid --grid-url http://hub:4444/wd/hub -m <suite>
+# This avoids ConnectionRefused errors when tests start before hub is ready.
+#
+# USAGE (via Jenkinsfile — do not run directly):
+#   docker-compose -f test-suites.yaml up --pull=always
+# =============================================================================
+
+services:
+
+  # ── Smoke test suite → Chrome ──────────────────────────────────────────────
+  smoke-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=chrome
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+
+  # ── Login test suite → Firefox ─────────────────────────────────────────────
+  login-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER=firefox
+      - TEST_SUITE=login
+    command: sh runner.sh
+    volumes:
+      - ./output/login:/app/reports

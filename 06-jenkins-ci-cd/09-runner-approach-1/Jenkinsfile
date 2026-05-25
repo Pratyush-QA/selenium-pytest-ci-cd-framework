@@ -1,0 +1,86 @@
+/*
+    Runner - Approach 1
+
+    Objective:
+    - Start Selenium Grid (hub + chrome + firefox nodes)
+    - Run two test suites simultaneously against the Grid:
+        smoke-tests  → Chrome  (pytest -m smoke)
+        login-tests  → Firefox (pytest -m login)
+    - Archive HTML reports as Jenkins artifacts
+    - Tear down Grid and test containers in post (always runs)
+
+    Concept: Fixed browser per suite
+    ──────────────────────────────────
+    Browser is hardcoded per service in test-suites.yaml.
+    No parameter needed — smoke always runs on Chrome, login on Firefox.
+
+    Concept: --pull=always
+    ───────────────────────
+    Ensures Docker always pulls the latest python-selenium image from
+    Docker Hub (built by the image-builder pipeline) before running tests.
+    Without this, Docker uses the locally cached image which may be stale.
+
+    Concept: Two compose files (separation of concerns)
+    ────────────────────────────────────────────────────
+    grid.yaml       → Grid infrastructure only (hub + nodes)
+    test-suites.yaml → Test services only (smoke + login)
+    Keeping them separate lets Jenkins scale/restart Grid independently.
+
+    Concept: post { always }
+    ──────────────────────────
+    Grid and test containers are torn down regardless of test pass/fail.
+    Reports are archived so they appear in Jenkins build artifacts tab.
+
+    Prerequisites:
+    - Node1 (Windows machine) connected to Jenkins
+    - python-selenium image pushed to Docker Hub by image-builder pipeline
+    - Docker running on Node1
+*/
+pipeline {
+
+    agent {
+        node {
+            label 'Node1'
+            customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
+        }
+    }
+
+    stages {
+
+        stage('Start Grid') {
+            // CONCEPT: Start hub + chrome + firefox nodes in detached mode (-d).
+            // Detached = containers run in background so Jenkins moves to next stage.
+            // Tests will wait for hub readiness via runner.sh — not depends_on.
+            steps {
+                bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/grid.yaml up -d"
+            }
+        }
+
+        stage('Run Tests') {
+            // CONCEPT: --pull=always → always fetch latest image from Docker Hub.
+            // Both smoke-tests and login-tests start simultaneously (docker-compose
+            // brings up all services in parallel by default).
+            // This stage blocks until both test containers exit.
+            steps {
+                bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/test-suites.yaml up --pull=always"
+            }
+        }
+
+    }
+
+    post {
+        always {
+            // CONCEPT: Always tear down regardless of test result.
+            // Prevents orphaned containers from accumulating on Node1.
+            bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/grid.yaml down"
+            bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/test-suites.yaml down"
+
+            // CONCEPT: archiveArtifacts → saves report files into Jenkins build.
+            // After pipeline finishes, download reports from Jenkins UI:
+            // Build → Artifacts → smoke/report.html or login/report.html
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/09-runner-approach-1/output/smoke/*.html',  allowEmptyArchive: true
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/09-runner-approach-1/output/login/*.html',  allowEmptyArchive: true
+        }
+    }
+
+}

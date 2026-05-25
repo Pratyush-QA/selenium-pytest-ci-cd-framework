@@ -1,0 +1,46 @@
+# =============================================================================
+# test-suites.yaml — Test services with dynamic browser selection
+# =============================================================================
+#
+# CONCEPT: BROWSER env var (no hardcoded browser)
+# ─────────────────────────────────────────────────
+# Unlike Approach 1 where browser is fixed per suite, here BROWSER is passed
+# from Jenkinsfile at runtime:
+#   BROWSER=chrome docker-compose -f test-suites.yaml up
+#   BROWSER=firefox docker-compose -f test-suites.yaml up
+#
+# Both test suites (smoke + regression) run on the SAME browser selected
+# by the user via Jenkins "Build with Parameters" → BROWSER dropdown.
+#
+# CONCEPT: runner.sh
+# ───────────────────
+# Polls hub until ready then runs pytest --grid -m <suite>.
+# Both services start simultaneously — smoke and regression run in parallel.
+#
+# USAGE (via Jenkinsfile — do not run directly):
+#   BROWSER=chrome docker-compose -f test-suites.yaml up --pull=always
+# =============================================================================
+
+services:
+
+  # ── Smoke test suite ────────────────────────────────────────────────────────
+  smoke-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER        # ← passed from Jenkinsfile (chrome or firefox)
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+
+  # ── Regression test suite ───────────────────────────────────────────────────
+  regression-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER        # ← same browser as smoke (user selected)
+      - TEST_SUITE=regression
+    command: sh runner.sh
+    volumes:
+      - ./output/regression:/app/reports

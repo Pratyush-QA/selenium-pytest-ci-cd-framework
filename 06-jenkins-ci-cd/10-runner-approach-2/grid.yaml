@@ -1,0 +1,42 @@
+# =============================================================================
+# grid.yaml — Selenium Grid infrastructure with dynamic scaling
+# =============================================================================
+#
+# CONCEPT: replicas: 0 (dynamic scaling)
+# ────────────────────────────────────────
+# Both chrome and firefox nodes start with 0 replicas.
+# Jenkinsfile scales the selected browser at runtime:
+#   --scale chrome=2   → starts 2 Chrome containers
+#   --scale firefox=2  → starts 2 Firefox containers
+#
+# This avoids running unused browser containers — only the chosen
+# browser node is scaled up for that build.
+#
+# USAGE (via Jenkinsfile — do not run directly):
+#   docker-compose -f grid.yaml up --scale chrome=2 -d
+#   docker-compose -f grid.yaml up --scale firefox=2 -d
+#   docker-compose -f grid.yaml down
+# =============================================================================
+
+services:
+
+  hub:
+    image: selenium/hub:4.18.1
+
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0       # scaled dynamically by Jenkinsfile
+    env_file: .env
+
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0       # scaled dynamically by Jenkinsfile
+    env_file: .env

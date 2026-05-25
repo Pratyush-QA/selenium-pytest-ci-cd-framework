@@ -1,0 +1,42 @@
+# =============================================================================
+# grid.yaml — Selenium Grid infrastructure (hub + browser nodes)
+# =============================================================================
+#
+# CONCEPT: Separation of concerns
+# ─────────────────────────────────
+# Grid infra (this file) is kept separate from test services (test-suites.yaml).
+# This lets Jenkins start/stop the Grid independently from test execution.
+#
+# .env file supplies common node settings to chrome and firefox:
+#   SE_EVENT_BUS_HOST           → where to find the hub
+#   SE_EVENT_BUS_PUBLISH_PORT   → node publishes availability on this port
+#   SE_EVENT_BUS_SUBSCRIBE_PORT → node listens for commands on this port
+#   SE_NODE_MAX_SESSIONS        → max parallel browser sessions per node
+#
+# USAGE (via Jenkinsfile — do not run directly):
+#   docker-compose -f grid.yaml up -d
+#   docker-compose -f grid.yaml down
+# =============================================================================
+
+services:
+
+  hub:
+    image: selenium/hub:4.18.1
+
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 1
+    env_file: .env
+
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '2g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 1
+    env_file: .env

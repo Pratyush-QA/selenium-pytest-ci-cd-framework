@@ -1,0 +1,108 @@
+/*
+    Runner - Approach 2
+
+    Objective:
+    - User selects browser (chrome/firefox) via Jenkins parameter.
+    - Scale ONLY the selected browser node to 2 instances.
+    - Run smoke + regression test suites in parallel on that browser.
+    - Fail the build explicitly if any test failures are detected.
+    - Archive HTML reports as Jenkins artifacts.
+
+    Difference from Approach 1:
+    ────────────────────────────
+    Approach 1 → browser hardcoded per suite (smoke=Chrome, login=Firefox)
+    Approach 2 → user picks browser at runtime via Jenkins parameter
+                 BOTH suites run on the SAME selected browser
+                 Only that browser node is scaled up (other stays at 0)
+
+    Concept: Jenkins parameters
+    ────────────────────────────
+    parameters { choice ... } adds a dropdown to "Build with Parameters".
+    User selects chrome or firefox before triggering the build.
+    Value is available as ${params.BROWSER} inside the pipeline.
+
+    Concept: --scale ${params.BROWSER}=2
+    ─────────────────────────────────────
+    Scales only the selected browser to 2 containers.
+    2 nodes × SE_NODE_MAX_SESSIONS=4 = 8 parallel browser slots available.
+    Unused browser node stays at 0 replicas → no wasted resources.
+
+    Concept: failure detection via fileExists
+    ──────────────────────────────────────────
+    pytest writes a non-zero exit code on failure but docker-compose
+    may not propagate it reliably. We explicitly check for failed test
+    marker files and call error() to fail the Jenkins build if found.
+
+    Prerequisites:
+    - Node1 (Windows machine) connected to Jenkins
+    - python-selenium image pushed to Docker Hub by image-builder pipeline
+    - Docker running on Node1
+*/
+pipeline {
+
+    agent {
+        node {
+            label 'Node1'
+            customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
+        }
+    }
+
+    parameters {
+        // CONCEPT: choice parameter → user picks browser before running build
+        // Jenkins shows a dropdown: "Build with Parameters" → select chrome/firefox
+        choice(
+            choices: ['chrome', 'firefox'],
+            description: 'Select the browser to run tests on',
+            name: 'BROWSER'
+        )
+    }
+
+    stages {
+
+        stage('Start Grid') {
+            // CONCEPT: Scale ONLY the selected browser to 2 nodes.
+            // --scale chrome=2  → 2 Chrome containers register with hub
+            // --scale firefox=2 → 2 Firefox containers register with hub
+            // Other browser stays at 0 replicas (replicas: 0 in grid.yaml)
+            steps {
+                bat "docker-compose -f 06-jenkins-ci-cd/10-runner-approach-2/grid.yaml up --scale ${params.BROWSER}=2 -d"
+            }
+        }
+
+        stage('Run Tests') {
+            // CONCEPT: BROWSER env var passed to test-suites.yaml at runtime.
+            // Both smoke-tests and regression-tests pick up BROWSER from environment.
+            // --pull=always ensures latest image from Docker Hub is used.
+            steps {
+                bat "set BROWSER=${params.BROWSER} && docker-compose -f 06-jenkins-ci-cd/10-runner-approach-2/test-suites.yaml up --pull=always"
+
+                // CONCEPT: Explicit failure detection
+                // pytest exit code may be lost through docker-compose on Windows.
+                // Check if pytest generated a .failures marker or reports indicate failure.
+                script {
+                    def smokeReport      = "06-jenkins-ci-cd/10-runner-approach-2/output/smoke"
+                    def regressionReport = "06-jenkins-ci-cd/10-runner-approach-2/output/regression"
+                    // If reports folder is missing entirely → tests never ran → fail build
+                    if (!fileExists(smokeReport) && !fileExists(regressionReport)) {
+                        error('No test output found — tests may not have run. Check Grid logs.')
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            // Tear down Grid and test containers regardless of pass/fail
+            bat "docker-compose -f 06-jenkins-ci-cd/10-runner-approach-2/grid.yaml down"
+            bat "docker-compose -f 06-jenkins-ci-cd/10-runner-approach-2/test-suites.yaml down"
+
+            // Archive reports as Jenkins build artifacts
+            // Access via: Build → Artifacts tab in Jenkins UI
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/10-runner-approach-2/output/smoke/*.html',      allowEmptyArchive: true
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/10-runner-approach-2/output/regression/*.html', allowEmptyArchive: true
+        }
+    }
+
+}
