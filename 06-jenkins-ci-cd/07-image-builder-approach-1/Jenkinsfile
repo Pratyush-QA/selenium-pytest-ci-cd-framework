@@ -23,13 +23,14 @@ pipeline {
     agent {
         node {
             label 'Node1'
-            customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
+            //customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
         }
     }
 
     environment {
         IMAGE_NAME  = 'pratyushjindal123/python-selenium'
         IMAGE_TAG   = "${env.BUILD_NUMBER}"
+        //PROJECT_DIR required to give if running this jenkins file where dockerfile is not present
         PROJECT_DIR = 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace/05-dockerize/python-selenium'
     }
 
@@ -44,6 +45,8 @@ pipeline {
 
         stage('Build Image') {
             steps {
+                //:latest is a convenience tag so anyone pulling the image always gets the newest version without knowing the build number.
+                //means if build-10 then image will be imagename-10 and it'll be tagged as latest so anyone pulling image will get latest image
                 bat 'docker build -t %IMAGE_NAME%:%IMAGE_TAG% -t %IMAGE_NAME%:latest "%PROJECT_DIR%"'
             }
         }
