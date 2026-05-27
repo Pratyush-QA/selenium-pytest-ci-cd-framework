@@ -50,6 +50,12 @@ services:
 # CONCEPT: Define network here — test-suites.yaml joins it via external: true
 # All containers (hub, nodes, test services) share this single network
 # so test containers can reach hub by service name "hub"
+#
+# CONCEPT: name: selenium-grid (explicit network name)
+# Without this, docker-compose prefixes the folder name: 09-runner-approach-1_selenium-grid
+# test-suites.yaml looks for exactly "selenium-grid" via external: true → would fail
+# name: forces the exact network name regardless of project/folder name
 networks:
   selenium-grid:
     driver: bridge
+    name: selenium-grid

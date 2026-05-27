@@ -48,6 +48,10 @@ services:
       - selenium-grid
 
 # CONCEPT: Define network here — test-suites.yaml joins it via external: true
+# name: selenium-grid forces the exact network name — without it docker-compose
+# prefixes with folder name (10-runner-approach-2_selenium-grid) and
+# test-suites.yaml external: true lookup for "selenium-grid" would fail
 networks:
   selenium-grid:
     driver: bridge
+    name: selenium-grid
