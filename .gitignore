@@ -18,6 +18,11 @@ dist/
 .env
 .env.local
 
+# Exception: Selenium Grid .env files contain no secrets (only port/host config)
+# These must be committed so Jenkins can start the grid nodes
+!06-jenkins-ci-cd/09-runner-approach-1/.env
+!06-jenkins-ci-cd/10-runner-approach-2/.env
+
 # macOS
 .DS_Store
 __MACOSX/
