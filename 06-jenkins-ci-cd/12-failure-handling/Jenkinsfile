@@ -1,0 +1,130 @@
+/*
+    Runner with Test Failure Handling
+
+    Problem this solves:
+    ─────────────────────
+    By default, when pytest finds failing test cases:
+      pytest exits with code 1
+      → docker-compose exits with code 1
+      → Jenkins bat step fails
+      → entire build marked FAILURE (red)
+      → post actions may still run but build is red
+
+    This is misleading because:
+      - Infrastructure worked fine (Grid started, tests ran)
+      - It's not a pipeline failure — it's a test result
+      - Red build should mean "pipeline broke", not "some TCs failed"
+
+    Solution: catchError + UNSTABLE
+    ─────────────────────────────────
+    Jenkins has 3 build states:
+      SUCCESS  (green)  → everything passed
+      UNSTABLE (yellow) → pipeline ran fine but test failures found
+      FAILURE  (red)    → pipeline itself broke (infra/config error)
+
+    Using catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE'):
+      - Test failures → build marked UNSTABLE (yellow) not FAILURE (red)
+      - Pipeline continues to post { always } for cleanup + report archive
+      - FAILURE (red) is reserved for real infra errors (Grid not starting, docker login fail etc.)
+
+    This way:
+      Green  → all TCs passed ✅
+      Yellow → some TCs failed, check report 🔍
+      Red    → pipeline itself broke (not a test issue) ❌
+
+    Prerequisites:
+    - Node1 connected to Jenkins
+    - dockerhub-creds in System → Global credentials
+    - Docker running on Node1
+*/
+pipeline {
+
+    agent {
+        node {
+            label 'Node1'
+            customWorkspace 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace'
+        }
+    }
+
+    environment {
+        IMAGE_NAME  = 'pratyushjindal123/python-selenium'
+        IMAGE_TAG   = "${env.BUILD_NUMBER}"
+        PROJECT_DIR = 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace/05-dockerize/python-selenium'
+    }
+
+    stages {
+
+        stage('Build Image') {
+            steps {
+                bat 'docker build -t %IMAGE_NAME%:%IMAGE_TAG% -t %IMAGE_NAME%:latest "%PROJECT_DIR%"'
+            }
+        }
+
+        stage('Push Image') {
+            environment {
+                DOCKER_HUB = credentials('dockerhub-creds')
+            }
+            steps {
+                bat 'echo %DOCKER_HUB_PSW% | docker login -u %DOCKER_HUB_USR% --password-stdin'
+                bat 'docker push %IMAGE_NAME%:%IMAGE_TAG%'
+                bat 'docker push %IMAGE_NAME%:latest'
+            }
+        }
+
+        stage('Start Grid') {
+            steps {
+                bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/grid.yaml up -d"
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                // CONCEPT: catchError — separates test failures from pipeline failures
+                //
+                // Without catchError:
+                //   pytest fails → exit code 1 → bat fails → BUILD FAILURE (red)
+                //
+                // With catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE'):
+                //   pytest fails → exit code 1 → caught here
+                //   → stage marked UNSTABLE (yellow)
+                //   → build marked UNSTABLE (yellow)
+                //   → pipeline CONTINUES to post { always }
+                //   → cleanup + reports still happen
+                //
+                // UNSTABLE = "tests ran but some failed" (check the report)
+                // FAILURE  = "pipeline itself broke"     (check the logs)
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/test-suites.yaml up --pull=always"
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            bat 'docker logout'
+            bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/grid.yaml down"
+            bat "docker-compose -f 06-jenkins-ci-cd/09-runner-approach-1/test-suites.yaml down"
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/09-runner-approach-1/output/smoke/*.html',  allowEmptyArchive: true
+            archiveArtifacts artifacts: '06-jenkins-ci-cd/09-runner-approach-1/output/login/*.html',  allowEmptyArchive: true
+        }
+
+        // CONCEPT: post condition blocks
+        // success  → runs only when build is SUCCESS (green)
+        // unstable → runs only when build is UNSTABLE (yellow) i.e. test failures found
+        // failure  → runs only when build is FAILURE (red) i.e. pipeline itself broke
+        success {
+            echo "All test cases passed! Build is GREEN."
+        }
+
+        unstable {
+            echo "Some test cases FAILED. Build marked UNSTABLE. Check archived reports."
+        }
+
+        failure {
+            echo "Pipeline itself FAILED (not a test failure). Check logs for infra/config errors."
+        }
+    }
+
+}
