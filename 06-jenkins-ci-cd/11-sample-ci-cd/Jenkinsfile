@@ -1,0 +1,93 @@
+/*
+    Sample CI/CD Pipeline — End-to-End Flow
+
+    Objective:
+    Simulates a real-world pipeline for a web application where:
+      1. Unit + integration tests run first
+      2. Application is packaged as a Docker image
+      3. App is deployed to QA environment
+      4. Selenium tests are triggered as a SEPARATE Jenkins job
+      5. If all passes → deploy to Production
+
+    Concept: build job (downstream trigger)
+    ────────────────────────────────────────
+    The selenium-test stage does NOT run tests directly.
+    Instead it triggers our existing runner pipeline job
+    (Jenkins_Runner1) as a downstream job using:
+
+        build job: 'Jenkins_Runner1', parameters: [...]
+
+    This keeps concerns separated:
+      - THIS pipeline owns: app build, deploy, release decisions
+      - Jenkins_Runner1 owns: Selenium Grid setup, test execution, reporting
+
+    Concept: Real CI/CD flow
+    ─────────────────────────
+    In a real project this pipeline would be triggered on every
+    code push to the application repo. The selenium-test stage
+    acts as a quality gate — if tests fail, deploy-to-prod is skipped.
+
+    Concept: parameters passed to downstream job
+    ─────────────────────────────────────────────
+    BROWSER parameter is passed to Jenkins_Runner1 so the caller
+    (this pipeline) controls which browser the tests run on.
+    The runner job itself does not need to be re-configured.
+
+    Prerequisites:
+    - Jenkins_Runner1 pipeline job must exist in Jenkins
+    - Jenkins_Runner1 must have BROWSER as a choice parameter
+*/
+pipeline {
+
+    agent any
+
+    stages {
+
+        stage('unit-tests') {
+            // Simulate running unit tests for the application under test
+            // In real project: sh 'pytest tests/unit'
+            steps {
+                echo "Running unit tests"
+                echo "Running integration tests"
+            }
+        }
+
+        stage('package') {
+            // Simulate building the application Docker image
+            // In real project: bat 'docker build -t my-app:latest .'
+            steps {
+                echo "Building application Docker image"
+            }
+        }
+
+        stage('deploy-to-qa') {
+            // Simulate deploying app to QA environment
+            // In real project: bat 'docker-compose -f qa.yaml up -d'
+            steps {
+                echo "Deploying application to QA environment"
+            }
+        }
+
+        stage('selenium-test') {
+            // CONCEPT: Trigger the runner pipeline as a downstream job.
+            // This stage BLOCKS until Jenkins_Runner1 completes.
+            // If Jenkins_Runner1 fails → this stage fails → deploy-to-prod skipped.
+            // BROWSER parameter controls which browser tests run on.
+            steps {
+                build job: 'Jenkins_Runner1', parameters: [
+                    string(name: 'BROWSER', value: 'chrome')
+                ]
+            }
+        }
+
+        stage('deploy-to-prod') {
+            // Only reached if all above stages pass (including selenium-test)
+            // In real project: deploy to production environment
+            steps {
+                echo "All tests passed — deploying application to Production"
+            }
+        }
+
+    }
+
+}
