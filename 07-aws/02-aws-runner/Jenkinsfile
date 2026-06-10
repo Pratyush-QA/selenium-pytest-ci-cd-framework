@@ -1,0 +1,98 @@
+/*
+    AWS Runner Pipeline
+
+    CONCEPT: EC2 as Jenkins Agent (the key AWS difference)
+    ───────────────────────────────────────────────────────
+    This pipeline runs on an AWS EC2 instance, NOT your laptop.
+
+    Local setup (what we did before):
+      Jenkins Master (Docker on laptop)
+        └── Node1 = YOUR LAPTOP  ← tests consume YOUR laptop RAM/CPU
+
+    AWS setup (what this pipeline uses):
+      Jenkins Master (Docker on laptop OR EC2)
+        └── EC2 Node = AWS cloud machine  ← tests consume EC2 resources
+            - Your laptop does nothing except view Jenkins UI
+            - EC2 is always on (no sleeping, no shutdowns)
+            - Can be stopped/terminated after tests to save cost
+            - Scale: launch more EC2s for more parallel capacity
+
+    CONCEPT: agent { label 'EC2' }
+    ─────────────────────────────────
+    'EC2' is a Jenkins agent label assigned to the AWS EC2 instance.
+    Jenkins master connects to EC2 via SSH (or JNLP agent).
+    All stages run on EC2 — no laptop involvement.
+
+    CONCEPT: BROWSER parameter
+    ────────────────────────────
+    User selects browser when triggering build.
+    Passed to grid.yaml as --scale ${BROWSER}=1
+    Only that browser node starts → no wasted EC2 resources.
+
+    CONCEPT: fileExists check for failed tests
+    ────────────────────────────────────────────
+    pytest writes a failed_tests.txt or junit XML on failure.
+    We check for this file to distinguish:
+      - Test failures (mark UNSTABLE, keep pipeline running)
+      - Infrastructure failures (mark FAILURE, something broke)
+
+    AWS Setup Prerequisites:
+    - EC2 instance launched (t3.medium recommended for Selenium)
+    - Docker installed on EC2
+    - EC2 registered as Jenkins agent with label 'EC2'
+    - Security group: port 22 (SSH) open for Jenkins master
+    - dockerhub-creds credential in Jenkins System → Global
+*/
+pipeline {
+
+    agent {
+        // CONCEPT: 'EC2' label → Jenkins picks the AWS EC2 agent
+        // Change to 'Node1' to run on local machine for testing
+        label 'EC2'
+    }
+
+    parameters {
+        choice(
+            choices: ['chrome', 'firefox'],
+            description: 'Select browser for test execution',
+            name: 'BROWSER'
+        )
+    }
+
+    stages {
+
+        stage('Start Grid') {
+            // CONCEPT: --scale ${BROWSER}=1
+            // Only the selected browser node starts.
+            // chrome selected → 1 chrome container, 0 firefox containers
+            // Saves EC2 memory — no unused browser containers running
+            steps {
+                sh "docker-compose -f 07-aws/02-aws-runner/grid.yaml up --scale ${params.BROWSER}=1 -d"
+            }
+        }
+
+        stage('Run Tests') {
+            // CONCEPT: BROWSER env var + --pull=always
+            // BROWSER is passed to test-suites.yaml so containers know which browser to use.
+            // --pull=always ensures EC2 uses freshly built image from Docker Hub
+            // (not a stale cached image from a previous run)
+            steps {
+                sh "BROWSER=${params.BROWSER} docker-compose -f 07-aws/02-aws-runner/test-suites.yaml up --pull=always"
+            }
+        }
+
+    }
+
+    post {
+        always {
+            // Tear down Grid and test containers regardless of result
+            sh "docker-compose -f 07-aws/02-aws-runner/grid.yaml down"
+            sh "docker-compose -f 07-aws/02-aws-runner/test-suites.yaml down"
+
+            // Archive HTML reports — viewable in Jenkins build artifacts tab
+            archiveArtifacts artifacts: '07-aws/02-aws-runner/output/smoke/*.html',      allowEmptyArchive: true
+            archiveArtifacts artifacts: '07-aws/02-aws-runner/output/regression/*.html', allowEmptyArchive: true
+        }
+    }
+
+}

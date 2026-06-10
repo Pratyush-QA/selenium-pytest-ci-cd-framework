@@ -1,0 +1,74 @@
+# =============================================================================
+# docker-compose.yaml — Selenium Grid + Test Suites (AWS Runner)
+# =============================================================================
+#
+# CONCEPT: Single compose file for AWS EC2 runner
+# ─────────────────────────────────────────────────
+# On AWS EC2, we use a single compose file combining grid + test suites.
+# This is different from local runner (2 separate files) because:
+#   - EC2 has no old containers sitting around (fresh environment)
+#   - Simpler to manage on a remote machine
+#   - BROWSER env var passed from Jenkinsfile at runtime
+#
+# USAGE (via Jenkinsfile on EC2 — do not run directly):
+#   BROWSER=chrome docker-compose up --scale chrome=1 -d
+#   BROWSER=chrome docker-compose -f test-suites.yaml up --pull=always
+# =============================================================================
+
+services:
+
+  hub:
+    image: selenium/hub:4.18.1
+    networks:
+      - selenium-grid
+
+  chrome:
+    image: selenium/node-chrome:4.18.1
+    shm_size: '1g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0
+    env_file: .env
+    networks:
+      - selenium-grid
+
+  firefox:
+    image: selenium/node-firefox:4.18.1
+    shm_size: '1g'
+    depends_on:
+      - hub
+    deploy:
+      replicas: 0
+    env_file: .env
+    networks:
+      - selenium-grid
+
+  smoke-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - BROWSER
+      - HUB_HOST=hub
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+    networks:
+      - selenium-grid
+
+  regression-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - BROWSER
+      - HUB_HOST=hub
+      - TEST_SUITE=regression
+    command: sh runner.sh
+    volumes:
+      - ./output/regression:/app/reports
+    networks:
+      - selenium-grid
+
+networks:
+  selenium-grid:
+    driver: bridge
+    name: selenium-grid

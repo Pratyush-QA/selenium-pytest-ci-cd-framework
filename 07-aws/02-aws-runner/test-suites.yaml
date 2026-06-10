@@ -1,0 +1,50 @@
+# =============================================================================
+# test-suites.yaml — Test runners for AWS EC2
+# =============================================================================
+#
+# CONCEPT: BROWSER env var passed from Jenkinsfile
+# ──────────────────────────────────────────────────
+# BROWSER is not hardcoded — Jenkins passes it at runtime:
+#   BROWSER=chrome docker-compose -f test-suites.yaml up --pull=always
+#   BROWSER=firefox docker-compose -f test-suites.yaml up --pull=always
+#
+# CONCEPT: external: true (joins grid network created by grid.yaml)
+# ──────────────────────────────────────────────────────────────────
+# grid.yaml creates selenium-grid network.
+# This file joins it — test containers can reach hub by name "hub".
+#
+# CONCEPT: --pull=always (EC2 always gets latest image from Hub)
+# ───────────────────────────────────────────────────────────────
+# EC2 may have old cached image. --pull=always ensures tests
+# always run against the freshly built+pushed image from image-builder pipeline.
+# =============================================================================
+
+services:
+
+  smoke-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER
+      - TEST_SUITE=smoke
+    command: sh runner.sh
+    volumes:
+      - ./output/smoke:/app/reports
+    networks:
+      - selenium-grid
+
+  regression-tests:
+    image: pratyushjindal123/python-selenium:latest
+    environment:
+      - HUB_HOST=hub
+      - BROWSER
+      - TEST_SUITE=regression
+    command: sh runner.sh
+    volumes:
+      - ./output/regression:/app/reports
+    networks:
+      - selenium-grid
+
+networks:
+  selenium-grid:
+    external: true

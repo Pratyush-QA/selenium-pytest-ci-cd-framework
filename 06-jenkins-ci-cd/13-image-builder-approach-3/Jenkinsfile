@@ -1,0 +1,112 @@
+/*
+    Image Builder — Approach 3 (Docker Agent per Stage)
+
+    Concept: agent none + per-stage Docker agent
+    ─────────────────────────────────────────────
+    Instead of a fixed Node1 running all stages, each stage
+    spins up its own Docker container as the agent.
+
+    agent none at pipeline level = no default agent assigned
+    Each stage declares its own agent { docker { image "..." } }
+
+    Why useful:
+    - No need to install Python/pip on your Jenkins machine
+    - Each stage gets a clean, isolated environment
+    - Stage completes → container is automatically destroyed
+    - Different stages can use different images (python, node, maven etc.)
+
+    Concept: -u root
+    ─────────────────
+    By default Jenkins runs inside the container as the jenkins user.
+    Some operations (pip install to system, file writes) need root.
+    -u root overrides the user to root inside the container.
+
+    Concept: -v (volume mount for pip cache)
+    ─────────────────────────────────────────
+    -v /tmp/pip-cache:/root/.cache/pip
+    Mounts host /tmp/pip-cache into container's pip cache directory.
+    On repeated builds, pip finds cached packages → faster install.
+    Without this, every build downloads all packages from scratch.
+
+    Flow:
+    Build Image stage:
+      Jenkins spins up python:3.11-slim container
+      Runs pip install inside it to verify dependencies
+      Exits container → container destroyed
+
+    Build Docker Image + Push stages:
+      Back on Node1 (agent any) — needs Docker CLI to build/push
+      Builds the actual python-selenium image
+      Pushes to Docker Hub
+
+    Prerequisites:
+    - Node1 connected to Jenkins
+    - dockerhub-creds in System → Global credentials
+    - Docker running on Node1
+*/
+pipeline {
+
+    agent none
+
+    environment {
+        IMAGE_NAME  = 'pratyushjindal123/python-selenium'
+        IMAGE_TAG   = "${env.BUILD_NUMBER}"
+        PROJECT_DIR = 'D:/Study/Mirror/CompleteMaterial-SDET/1.PythonSDET/3.SDET-Syllabus/10.DevOps/4.CI_CD_Docker_Grid_AWS/9.Project/docker_test/workspace/05-dockerize/python-selenium'
+    }
+
+    stages {
+
+        stage('Verify Dependencies') {
+            // CONCEPT: Docker agent for this stage only
+            // Jenkins spins up python:3.11-slim container → runs steps → destroys it
+            // No Python installation needed on Jenkins agent machine
+            agent {
+                docker {
+                    image 'python:3.11-slim'
+                    args '-u root -v /tmp/pip-cache:/root/.cache/pip'
+                }
+            }
+            steps {
+                sh 'python --version'
+                sh 'pip install selenium pytest --quiet'
+                sh 'python -c "import selenium; print(selenium.__version__)"'
+                echo "Dependencies verified inside Docker container"
+            }
+        }
+
+        stage('Build Image') {
+            // CONCEPT: Back on Node1 for Docker build (needs Docker CLI)
+            // Docker agent cannot run docker build inside docker easily
+            agent {
+                node { label 'Node1' }
+            }
+            steps {
+                bat 'docker build -t %IMAGE_NAME%:%IMAGE_TAG% -t %IMAGE_NAME%:latest "%PROJECT_DIR%"'
+            }
+        }
+
+        stage('Push Image') {
+            agent {
+                node { label 'Node1' }
+            }
+            environment {
+                DOCKER_HUB = credentials('dockerhub-creds')
+            }
+            steps {
+                bat 'echo %DOCKER_HUB_PSW% | docker login -u %DOCKER_HUB_USR% --password-stdin'
+                bat 'docker push %IMAGE_NAME%:%IMAGE_TAG%'
+                bat 'docker push %IMAGE_NAME%:latest'
+            }
+        }
+
+    }
+
+    post {
+        always {
+            node('Node1') {
+                bat 'docker logout'
+            }
+        }
+    }
+
+}
